@@ -1,0 +1,38 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          je-detection-fluentbit
+# Required-Start:    $local_fs $network je-detection-agent
+# Required-Stop:     $local_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Fluent Bit transport for je-detection-agent (OCSF -> Splunk HEC)
+### END INIT INFO
+
+PIDFILE=/run/je-detection-fluentbit.pid
+ENVFILE=/etc/je-detection/splunk-hec.env
+
+case "$1" in
+    start)
+        if [ ! -f "$ENVFILE" ]; then
+            echo "je-detection-fluentbit: $ENVFILE missing, not starting" >&2
+            exit 1
+        fi
+        echo "Starting je-detection-fluentbit"
+        set -a; . "$ENVFILE"; set +a
+        start-stop-daemon --start --background --make-pidfile --pidfile "$PIDFILE" \
+            --exec /usr/bin/td-agent-bit -- -c /etc/je-detection/fluent-bit.conf
+        ;;
+    stop)
+        echo "Stopping je-detection-fluentbit"
+        start-stop-daemon --stop --pidfile "$PIDFILE" --retry 5 --oknodo
+        rm -f "$PIDFILE"
+        ;;
+    restart)
+        "$0" stop
+        "$0" start
+        ;;
+    *)
+        echo "usage: $0 {start|stop|restart}" >&2
+        exit 1
+        ;;
+esac

@@ -1,0 +1,12 @@
+[Unit]
+Description=JE detection agent (CVE-to-rule compensating detection)
+After=auditd.service
+Requires=auditd.service
+
+[Service]
+ExecStart=/usr/bin/je-detection-agent
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

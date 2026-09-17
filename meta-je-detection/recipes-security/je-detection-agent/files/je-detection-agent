@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""je-detection-agent -- watches auditd for CVE-specific rule matches
+and emits OCSF Security Finding (class_uid 2001) events as JSON lines
+to LOG_PATH for Fluent Bit to ship onward. Detection + OCSF formatting
+only -- no transport, per the meta-je-detection design.
+
+Each CVE gets one auditd rule (rules.d/<CVE>.rules) plus one JSON
+descriptor (rules.d/<CVE>.json, keyed by the same audit key) describing
+how to render a match as an OCSF finding -- the "CVE-to-rule" mapping
+this agent is generated against.
+"""
+import glob
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+import uuid
+
+RULES_DIR = "/etc/je-detection/rules.d"
+CHECKPOINT_DIR = "/var/lib/je-detection"
+LOG_PATH = "/var/log/je-detection/events.jsonl"
+AUDIT_LOG = "/var/log/audit/audit.log"
+POLL_SECONDS = 5
+OCSF_VERSION = "1.4.0"
+
+
+def load_rules():
+    rules = {}
+    for path in sorted(glob.glob(os.path.join(RULES_DIR, "*.json"))):
+        with open(path) as f:
+            rule = json.load(f)
+        rules[rule["audit_key"]] = rule
+    return rules
+
+
+def build_event(rule, raw_audit_line):
+    now_ms = int(time.time() * 1000)
+    return {
+        "activity_id": 1,       # Create
+        "category_uid": 2,      # Findings
+        "class_uid": 2001,      # Security Finding
+        "type_uid": 200101,     # class_uid * 100 + activity_id
+        "severity_id": rule.get("severity_id", 4),
+        "state_id": 1,           # New
+        "time": now_ms,
+        "message": rule["title"],
+        "is_alert": True,
+        "confidence_id": rule.get("confidence_id", 3),
+        "risk_score": rule.get("risk_score", 50),
+        "finding": {
+            "uid": str(uuid.uuid4()),
+            "title": rule["title"],
+            "desc": rule["desc"],
+            "src_url": rule.get("src_url", ""),
+        },
+        # Per the source plan (general-company, meta-je-* §4): OCSF
+        # fields vulnerability.cve.uid + attacks[] (MITRE ATT&CK), not an
+        # ad hoc CVE string -- both real schema fields (schema.ocsf.io),
+        # not guessed.
+        "vulnerabilities": [{"cve": {"uid": rule["cve"]}}],
+        **(
+            {"attacks": [{"technique": {
+                "uid": rule["attack_technique"],
+                "name": rule.get("attack_technique_name", ""),
+            }}]}
+            if rule.get("attack_technique") else {}
+        ),
+        "observables": rule.get("observables", []),
+        "device": {
+            "hostname": socket.gethostname(),
+            "type": "IoT",
+        },
+        "metadata": {
+            "version": OCSF_VERSION,
+            "product": {
+                "name": "je-detection-agent",
+                "vendor_name": "JustEmbed",
+                "version": "0.1.0",
+            },
+        },
+        "unmapped": {"audit_raw": raw_audit_line},
+    }
+
+
+def run_ausearch(key, checkpoint):
+    # -if AUDIT_LOG explicitly, not just -k: confirmed on real hardware
+    # that ausearch's own default log-file lookup fails silently
+    # (returns no matches) even though /etc/audit/auditd.conf's
+    # log_file points at the same path -- ausearch -k alone never
+    # finds anything, -if <path> does.
+    return subprocess.run(
+        ["ausearch", "-k", key, "-if", AUDIT_LOG, "--format", "raw",
+         "--checkpoint", checkpoint],
+        capture_output=True, text=True, timeout=30,
+    )
+
+
+def poll_once(key, rule, log_fh):
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    checkpoint = os.path.join(CHECKPOINT_DIR, f"{key}.checkpoint")
+    try:
+        out = run_ausearch(key, checkpoint)
+    except FileNotFoundError:
+        print("je-detection-agent: ausearch not found, is the audit "
+              "package installed?", file=sys.stderr)
+        return
+    # rc=1 with empty stderr is the legitimate "no new matches" case.
+    # rc=1 with a real message on stderr is a real error (confirmed on
+    # real hardware: a checkpoint file written during a poll that finds
+    # nothing yet -- e.g. right after boot, before enough of the audit
+    # log exists -- can come back malformed, "Missing dev/inode lines
+    # from checkpoint file", and every subsequent poll fails the same
+    # way forever unless the bad checkpoint is removed). Self-heal by
+    # dropping the checkpoint and retrying once rather than staying
+    # silently wedged.
+    if out.returncode not in (0, 1) or (out.returncode == 1 and out.stderr.strip()):
+        print(f"je-detection-agent: ausearch failed for key={key}: "
+              f"{out.stderr.strip()}", file=sys.stderr)
+        if "checkpoint" in out.stderr.lower() and os.path.exists(checkpoint):
+            print(f"je-detection-agent: removing checkpoint {checkpoint} "
+                  f"and retrying", file=sys.stderr)
+            os.remove(checkpoint)
+            try:
+                out = run_ausearch(key, checkpoint)
+            except FileNotFoundError:
+                return
+            if out.returncode not in (0, 1) or (out.returncode == 1 and out.stderr.strip()):
+                print(f"je-detection-agent: retry also failed for "
+                      f"key={key}: {out.stderr.strip()}", file=sys.stderr)
+                return
+        else:
+            return
+    for line in out.stdout.splitlines():
+        if not line.strip():
+            continue
+        event = build_event(rule, line)
+        log_fh.write(json.dumps(event) + "\n")
+        log_fh.flush()
+
+
+def main():
+    rules = load_rules()
+    if not rules:
+        print(f"je-detection-agent: no rules in {RULES_DIR}, nothing "
+              f"to watch", file=sys.stderr)
+    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+    with open(LOG_PATH, "a") as log_fh:
+        while True:
+            for key, rule in rules.items():
+                poll_once(key, rule, log_fh)
+            time.sleep(POLL_SECONDS)
+
+
+if __name__ == "__main__":
+    main()

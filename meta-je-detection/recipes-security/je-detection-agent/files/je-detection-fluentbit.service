@@ -1,0 +1,14 @@
+[Unit]
+Description=Fluent Bit transport for je-detection-agent (OCSF -> Splunk HEC)
+After=je-detection-agent.service network-online.target
+Wants=network-online.target
+Requires=je-detection-agent.service
+
+[Service]
+EnvironmentFile=/etc/je-detection/splunk-hec.env
+ExecStart=/usr/bin/td-agent-bit -c /etc/je-detection/fluent-bit.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
