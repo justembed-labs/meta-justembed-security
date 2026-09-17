@@ -173,6 +173,14 @@ real product constraints, rather than reinventing them:
 - OpenEmbedded-core's own `create-spdx`, `cve-check`,
   `kernel-fitimage`, and `uboot-sign` classes -- SBOM generation, CVE
   scanning, and FIT signing, wired up rather than rebuilt.
+- [Das U-Boot](https://www.denx.de/wiki/U-Boot) -- the bootloader
+  `je-secureboot`'s FIT verification chain builds on.
+- [QEMU](https://www.qemu.org/) -- lets the worked example run and be
+  reproduced by anyone, on any machine, with no physical hardware
+  required.
+- [systemd](https://systemd.io/) -- the service model `meta-je-hygiene`'s
+  service-surface check and `meta-je-detection`'s own units are built
+  around.
 - [Linux audit](https://github.com/linux-audit/audit-userspace)
   (`auditd`) -- the detection engine `meta-je-detection` builds on.
 - [Fluent Bit](https://fluentbit.io/) -- event shipping.
