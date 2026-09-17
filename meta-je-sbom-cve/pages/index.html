@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JustEmbed — compliance evidence</title>
+<style>
+  :root { color-scheme: light dark; --fg:#1a1a1a; --bg:#fafafa; --muted:#666;
+          --line:#ddd; --accent:#2456a6; --crit:#b3261e; --high:#c8600a;
+          --med:#b59a00; --low:#4a7; --card:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e6e6e6; --bg:#161616; --muted:#999; --line:#333;
+            --accent:#6ea8fe; --card:#1f1f1f; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         color:var(--fg); background:var(--bg); }
+  header { padding:1rem 1.5rem; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:1.1rem; }
+  header p { margin:.25rem 0 0; color:var(--muted); font-size:.85rem; }
+  main { padding:1.5rem; max-width:1100px; margin:0 auto; }
+  a { color:var(--accent); }
+  .row { display:flex; gap:1rem; flex-wrap:wrap; align-items:center; }
+  select, button { font:inherit; padding:.35rem .6rem; background:var(--card);
+                   color:var(--fg); border:1px solid var(--line); border-radius:6px; }
+  button.active { border-color:var(--accent); color:var(--accent); }
+  .timeline { list-style:none; padding:0; margin:1rem 0; }
+  .timeline li { padding:.6rem .8rem; border:1px solid var(--line);
+                 border-radius:8px; margin-bottom:.5rem; background:var(--card);
+                 cursor:pointer; }
+  .timeline li:hover { border-color:var(--accent); }
+  .timeline .id { font-weight:600; }
+  .timeline .meta { color:var(--muted); font-size:.85rem; }
+  .cards { display:flex; gap:.75rem; flex-wrap:wrap; margin:1rem 0; }
+  .card { flex:1; min-width:120px; padding:.75rem 1rem; border:1px solid var(--line);
+          border-radius:8px; background:var(--card); text-align:center; }
+  .card .n { font-size:1.6rem; font-weight:700; }
+  .card.crit .n { color:var(--crit); } .card.high .n { color:var(--high); }
+  .card.med .n { color:var(--med); } .card.low .n { color:var(--low); }
+  table { border-collapse:collapse; width:100%; margin:.5rem 0 1.5rem; font-size:.85rem; }
+  th, td { border:1px solid var(--line); padding:.35rem .5rem; text-align:left;
+           vertical-align:top; }
+  th { background:var(--card); cursor:pointer; }
+  code { background:var(--card); padding:.1rem .3rem; border-radius:4px; }
+  .tabs { margin:1rem 0 .5rem; }
+  .downloads a { margin-right:1rem; font-size:.85rem; }
+  .muted { color:var(--muted); }
+  h2 { font-size:1rem; border-bottom:1px solid var(--line); padding-bottom:.3rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>JustEmbed — compliance evidence</h1>
+  <p>Per-build SBOM, CVE status, and run-to-run diffs for the Linux platform.
+     Evidence, not a compliance claim.</p>
+</header>
+<main id="app">loading…</main>
+<script src="md.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
