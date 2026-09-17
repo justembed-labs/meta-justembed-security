@@ -21,9 +21,17 @@ do_install() {
     install -d ${D}${sysconfdir}/je-detection/rules.d
     install -m 0644 ${WORKDIR}/rules.d/CVE-2026-73283.json ${D}${sysconfdir}/je-detection/rules.d/
 
-    install -d ${D}${sysconfdir}/audit/rules.d
+    # -m 0750 matches auditd's own /etc/audit + /etc/audit/rules.d mode
+    # exactly -- a bare `install -d` (default 0755) here makes rpm see
+    # two packages declaring the same directory path with different
+    # permission bits and refuse the transaction as a real conflict,
+    # not a false positive (confirmed: auditd's own package lists both
+    # dirs as drwxr-x---).
+    install -d -m 0750 ${D}${sysconfdir}/audit/rules.d
     install -m 0640 ${WORKDIR}/rules.d/CVE-2026-73283.rules ${D}${sysconfdir}/audit/rules.d/
 }
+
+RDEPENDS:${PN} += "auditd"
 
 FILES:${PN} = " \
     ${sysconfdir}/je-detection \
