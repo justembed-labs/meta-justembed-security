@@ -26,8 +26,12 @@ do_install() {
     # two packages declaring the same directory path with different
     # permission bits and refuse the transaction as a real conflict,
     # not a false positive (confirmed: auditd's own package lists both
-    # dirs as drwxr-x---).
-    install -d -m 0750 ${D}${sysconfdir}/audit/rules.d
+    # dirs as drwxr-x---). Both directories named explicitly -- `install
+    # -d -m` only applies the given mode to the named path components,
+    # not to a parent it creates implicitly along the way (confirmed:
+    # naming only rules.d left the auto-created /etc/audit at the
+    # default 0755, still conflicting).
+    install -d -m 0750 ${D}${sysconfdir}/audit ${D}${sysconfdir}/audit/rules.d
     install -m 0640 ${WORKDIR}/rules.d/CVE-2026-73283.rules ${D}${sysconfdir}/audit/rules.d/
 }
 
