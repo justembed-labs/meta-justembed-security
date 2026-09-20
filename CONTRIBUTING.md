@@ -39,6 +39,20 @@ Reference the real motivating constraint (a CVE, a bug found on
 hardware, a spec line from the source plan) rather than restating the
 change.
 
+## Upstream first
+
+If a capability already exists in a mature upstream project (an
+oe-core class, `meta-swupdate`, Linux audit, Fluent Bit, etc.), wire it
+up rather than reimplementing it here. This project's own value is the
+lifecycle connecting existing tooling together, not a parallel
+implementation of any one piece of it.
+
+## Licensing
+
+This project is Apache-2.0 (see `LICENSE`). Per that license's own
+Section 5, a contribution is understood to be submitted under the same
+terms unless you state otherwise in the contribution itself.
+
 ## Reporting a vulnerability
 
 Don't open a public issue -- see `SECURITY.md`.

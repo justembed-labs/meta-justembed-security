@@ -30,6 +30,13 @@ A second, independent update for `meta-je-detection`'s own rule bundle
 (signed, no-reboot, service-reinit-only) has also been verified live
 on hardware -- see `meta-je-detection/README.md`.
 
+**Also demonstrated on QEMU**, independently, both directions: a
+committed update stays on the new copy, an update that's armed but
+never confirmed (simulated crash) reverts to the original copy --
+confirmed against real disk state (filesystem UUIDs), not inferred
+from log output. See `docs/evidence/je-swupdate-fota-ab-cycle.md` and
+`meta-je-example-bsp`'s README for the exact commands.
+
 **Push-mode only, no outbound update-polling today.** swupdate's
 built-in webserver mode needs something to reach *the device* to push
 an update -- fine on a local network, not realistic for a device
@@ -56,31 +63,51 @@ there instead (`u-boot.bbclass` has no kernel-style `.cfg`
 fragment-merge mechanism, so this is typically a small
 `do_configure:append()` on the U-Boot recipe).
 
-**Status: signing mechanism verified with real cryptography.** The
-built U-Boot's own device tree carries a genuinely embedded RSA-2048
-public key with `required = "conf"` (verification is mandatory once
-wired in, not merely possible), and the signed kernel/DT image carries
-real, non-placeholder signature bytes matching that key -- confirmed
-by decoding the actual output binaries, not by trusting a build's exit
-code. Getting a signed image to actually *boot* the target end to end
-is separate integration work per BSP (making sure every devicetree the
-target needs is part of the signed image, then a real flashed-hardware
-boot test) -- not yet demonstrated.
+**Status: signing mechanism verified with real cryptography, and
+demonstrated end to end on QEMU.** The built U-Boot's own device tree
+carries a genuinely embedded RSA-2048 public key with `required =
+"conf"` (verification is mandatory once wired in, not merely
+possible), and the signed kernel/DT image carries real,
+non-placeholder signature bytes matching that key -- confirmed by
+decoding the actual output binaries, not by trusting a build's exit
+code. On QEMU, this has been carried all the way through: U-Boot
+verifying the signature, booting the verified kernel and devicetree,
+and reaching a real Linux login prompt -- and, separately, correctly
+*rejecting* a tampered image. See `docs/evidence/je-secureboot-fit-verification.md`.
 
-**Ceiling on some silicon, not a gap in this layer**: on a SoC whose
-boot ROM performs no cryptographic check of the first-stage
-bootloader (common on general-purpose, as opposed to
-security-oriented, silicon tiers across most vendors), there is no
-hardware root of trust under U-Boot. `je-secureboot` on such a target
-can only ever be a chain starting *at* U-Boot -- FIT-signed
-kernel/DT/rootfs verification -- never a full ROM-anchored chain of
-trust, because U-Boot itself can't be attested. That's a property of
-the silicon, not something this layer can close. A security-oriented
-SoC variant is where a real hardware-anchored chain becomes possible.
-This is also why this class doesn't chase `uboot-sign.bbclass`'s
-deeper SPL-verifies-U-Boot link on such silicon: SPL itself is
-unverified by the boot ROM there too, so that link would look like a
-chain of trust without being an anchored one.
+**Not yet demonstrated: the same boot-to-login proof on real hardware.**
+Getting a signed image to actually boot a real target end to end is
+separate integration work per BSP (making sure every devicetree the
+target needs is part of the signed image, then a real flashed-hardware
+boot test).
+
+### Where the verified chain actually starts and stops
+
+For the current QEMU reference implementation
+(`meta-je-example-bsp`), stage by stage:
+
+| Stage | Present here? | Cryptographically verified? |
+|---|---|---|
+| Boot ROM | QEMU has no boot-ROM concept -- firmware (U-Boot) is loaded directly by the emulator. | No -- there is nothing to verify it. |
+| SPL | Not used in this reference implementation. | N/A |
+| U-Boot | Yes (the bootloader itself). | No -- U-Boot is not attested by anything before it. It is the root of trust for everything *after* it, not itself verified. |
+| FIT (kernel + devicetree) | Yes. | **Yes** -- RSA-2048 signature checked by U-Boot before boot; a tampered image is rejected. |
+| Root filesystem | Yes. | No boot-time verification. `meta-je-sbom-cve`/`je-swupdate-fota` check a per-file SHA-256 of the rootfs image *at update time*, not on every boot. |
+
+The same table applies conceptually to a real board, with two
+differences: a real SoC's boot ROM may or may not verify the
+first-stage bootloader (a property of the silicon, checked per
+target), and a real BSP typically has an SPL stage between ROM and
+U-Boot. On silicon whose boot ROM doesn't verify the first-stage
+bootloader (common on general-purpose, as opposed to security-oriented,
+silicon tiers across most vendors), the verified chain can only ever
+start *at* U-Boot, same as on QEMU -- not a gap in this layer, a
+property of the silicon tier. A security-oriented SoC variant with
+boot-ROM verification is where a real hardware-anchored chain becomes
+possible; this layer doesn't chase `uboot-sign.bbclass`'s deeper
+SPL-verifies-U-Boot link on silicon where SPL itself is unverified by
+the boot ROM, since that link would look like a chain of trust without
+being an anchored one.
 
 ## CRA Annex I connection
 
