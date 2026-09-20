@@ -1,43 +1,85 @@
 # meta-justembed-security
 
-Open-source Yocto/OpenEmbedded layers that close the **patch-latency
-gap**: the weeks between "a CVE is disclosed" and "a rebuilt/updated
-image reaches the device" vs. the days it takes an attacker to start
-exploiting it. Four independent layers, each adoptable on its own,
-each with its own release cadence (same convention as
-meta-oe/meta-security/meta-updater -- not a monolith):
+Reusable open-source Yocto/OpenEmbedded building blocks for practical
+embedded Linux security. Four independent layers that close the
+**patch-latency gap** -- the weeks between "a CVE is disclosed" and "a
+rebuilt/updated image reaches the device" vs. the days it takes an
+attacker to start exploiting it -- each adoptable on its own, each with
+its own release cadence (same convention as
+meta-oe/meta-security/meta-updater, not a monolith).
 
-```mermaid
-flowchart LR
-    H["meta-je-hygiene<br/>hardening baseline<br/>(build first)"]
-    S["meta-je-sbom-cve<br/>SBOM + CVE scan/diff<br/>(NVD + KEV + EPSS)"]
-    D["meta-je-detection<br/>CVE/TTP compensating<br/>detection"]
-    B["meta-je-boot-update<br/>secure boot + signed<br/>atomic FOTA"]
-    H --> S --> D
-    B -->|"signs + ships D's rule<br/>updates"| D
-```
+`Hygiene -> Evidence -> Detect -> Update & Boot`
 
-- **`meta-je-hygiene`** -- hardening baseline, enforced at `do_rootfs`
-  QA time (fails the build if unmet, not just documented).
-- **`meta-je-sbom-cve`** -- SBOM (SPDX + CycloneDX) and CVE scan/diff
-  (NVD + CISA KEV + EPSS), plus a kernel-CVE triage pipeline that
-  resolves version-range-matching noise a normal scan can't.
-- **`meta-je-detection`** -- turns a CVE into a compensating detection
-  rule (OCSF `Security Finding` + auditd rule today, Falco/eBPF later),
-  shipped independently of firmware on its own faster cadence, over
-  its own signed, no-reboot update channel.
-- **`meta-je-boot-update`** -- secure boot (U-Boot verified boot) and
-  atomic FOTA (swupdate-based signed A/B firmware updates, plus
-  independent signed rule-bundle updates for `meta-je-detection`).
+See `PROJECT.md` for the full project definition (problem, target
+users, design principles, non-goals, maturity model) and `ROADMAP.md`
+for what's next. This file is the entry point; those two are the
+guardrails.
 
-Licensed Apache-2.0 + NOTICE (see `LICENSE`/`NOTICE`) -- patent grant,
-attribution, no copyleft. Contribution standard: `CONTRIBUTING.md`.
-Vulnerability reports: `SECURITY.md`.
+## Why this exists
+
+Embedded Linux security work is usually split into disconnected
+activities: hardening a rootfs at build time, generating an SBOM,
+scanning for CVEs, watching for runtime misuse, shipping an update.
+Each of those exists as mature open-source tooling already. What's
+often missing on a real product is the connection between them -- a
+CVE found in a scan doesn't automatically become something the device
+can detect at runtime, and a detection rule doesn't automatically ship
+without waiting for the next full firmware release. This project wires
+existing upstream tooling (`cve-check`, `create-spdx`,
+`kernel-fitimage`, `uboot-sign`, `meta-swupdate`, Linux audit, Fluent
+Bit, OCSF) into that lifecycle, rather than replacing any of it.
+
+## Building blocks
+
+| Building block | Layer | Main purpose | Current maturity |
+|---|---|---|---|
+| Hygiene | `meta-je-hygiene` | Hardening baseline, enforced at `do_rootfs` QA time (fails the build if unmet, not just documented). | Hardware-verified: an unmet enforced check correctly fails a real build on physical hardware. |
+| Evidence | `meta-je-sbom-cve` | SBOM (SPDX) and CVE scan/diff (NVD + CISA KEV + EPSS), plus a kernel-CVE triage pipeline that resolves version-range-matching noise a normal scan can't. | Demonstrated end to end on QEMU, including a real scan-to-scan diff and real KEV/EPSS triage -- see `docs/evidence/`. |
+| Detect | `meta-je-detection` | Turns a CVE into a compensating detection rule (OCSF Security Finding + auditd rule today), shipped independently of firmware on its own faster cadence over a signed, no-reboot update channel. | Hardware-verified against one real, disclosed CVE (CVE-2026-73283) -- one proven rule, not a general detection-coverage claim. |
+| Update & Boot | `meta-je-boot-update` | Verified boot (U-Boot FIT signing) and atomic FOTA (swupdate-based signed A/B firmware updates, plus independent signed rule-bundle updates for `meta-je-detection`). | FOTA hardware-verified (real hardware, both A/B directions, real reboot). Secure boot demonstrated end to end (including rollback) on QEMU; hardware boot-to-login not yet demonstrated -- see `meta-je-boot-update/README.md`. |
+
+Maturity terms follow `PROJECT.md`'s maturity model. See
+`docs/evidence/` for the reproducible record behind each QEMU-based
+claim in this table.
+
+## Design principles
+
+- Composable, not monolithic -- each layer is independently adoptable.
+- Use mature upstream projects instead of reinventing them.
+- No mandatory cloud/backend dependency.
+- Evidence over unsupported claims.
+- Preserve uncertainty in vulnerability analysis -- ambiguous CVE
+  triage goes to a human reviewer, never silently resolved.
+- Integration with existing security infrastructure (collector/SIEM,
+  update server) rather than shipping a new backend.
+- Independently adoptable layers.
+
+Full detail: `PROJECT.md`.
+
+## Current scope
+
+Embedded Linux and IoT products built with Yocto/OpenEmbedded --
+industrial embedded devices and Linux-based HMIs/gateways where normal
+Linux integration is appropriate. See "OT roadmap" below for where
+this is headed next, and `PROJECT.md`/`ROADMAP.md` for the full
+picture.
+
+## Non-goals
+
+- Not a CRA (EU Cyber Resilience Act) compliance product -- it does not
+  by itself establish regulatory compliance.
+- Not a SIEM.
+- Not a fleet-management backend.
+- Not a plant-wide OT security system.
+- Not a Safety Instrumented System (SIS) runtime security platform.
+- Not a replacement for product-specific threat modeling or risk
+  assessment.
+- Not a certification framework (e.g. IEC 62443).
 
 ## Hardware & platform requirements
 
-These layers target any Yocto/OpenEmbedded-built embedded Linux
-image, not a specific board or SoC:
+These layers target any Yocto/OpenEmbedded-built embedded Linux image,
+not a specific board or SoC:
 
 - **`meta-je-hygiene`** -- any systemd-based image. The kernel-
   hardening-flags check needs a standard Kconfig-based kernel (true
@@ -61,7 +103,9 @@ image, not a specific board or SoC:
   opposed to security-oriented, silicon tiers across most vendors),
   the verified chain can only start *at* U-Boot -- FIT-signed
   kernel/DT/rootfs, not a ROM-anchored chain. That's a property of the
-  silicon tier, not a limitation of this layer.
+  silicon tier, not a limitation of this layer. See
+  `meta-je-boot-update/README.md` for exactly where the verified chain
+  starts in the current reference implementation.
 
 ## What's demonstrated today
 
@@ -127,6 +171,39 @@ sequenceDiagram
 `auditd` and the detection agent in place. See
 `meta-je-boot-update/README.md`.
 
+`meta-je-boot-update`'s secure boot mechanism (FIT signing, U-Boot
+verification) has separately been demonstrated end to end on QEMU,
+including rejecting a tampered image and a full A/B FOTA cycle proven
+in both directions (commit and rollback) -- see "Reference
+implementation" and `docs/evidence/` below.
+
+## Reference implementation
+
+This repository is the reusable mechanisms. It doesn't build a bootable
+image by itself.
+[`meta-je-example-bsp`](https://github.com/justembed-labs/meta-je-example-bsp)
+is a separate, QEMU-based worked example that adds all four layers to
+a real `core-image-minimal` build and demonstrates them running --
+including the secure-boot and FOTA end-to-end proofs referenced above.
+
+The QEMU proofs there are real (a real signature check, a real signed
+update, a real revert) but they run on QEMU's generic `virt` machine,
+not a hardware root of trust. They demonstrate the mechanisms
+correctly; they are not equivalent to hardware assurance on a specific
+product's own SoC. Where this project has separately been verified on
+real hardware (see the maturity table above), that's called out
+explicitly in the relevant layer's own README.
+
+## Evidence
+
+`docs/evidence/` holds reproducible records -- exact commands, exact
+output -- for the claims in this README and in each layer's own
+README that can currently be reproduced by an outside reader (mostly
+via `meta-je-example-bsp`, which requires nothing but QEMU). Claims
+verified only on physical hardware are marked as such in the index
+there; reproducing those independently needs the same hardware, which
+this project doesn't yet publish access to.
+
 ## Getting started (with AI)
 
 Adding these layers to a new BSP target is a short, concrete sequence
@@ -154,6 +231,9 @@ agent) can follow this directly:
    recipe is well-formed; it proves nothing about whether the layer
    works.
 
+This project has been built and run against Yocto **scarthgap**;
+other releases haven't been tested and aren't claimed to work.
+
 Full detail, exact commands, and the reasoning behind each gotcha:
 `.claude/skills/meta-je-bootstrap/SKILL.md`. It ships with the layers
 so it travels to any adopter -- to activate it in a *consuming*
@@ -161,10 +241,43 @@ project, copy or symlink the skill directory into that project's own
 `.claude/skills/` (Claude Code only discovers skills relative to the
 working directory it's invoked in, not across repos).
 
-## Built on
+For a from-scratch, no-hardware walkthrough, start from
+`meta-je-example-bsp` instead -- it's a complete, working `kas.yml`
+you can build directly.
 
-These layers integrate existing, proven open-source components around
-real product constraints, rather than reinventing them:
+## CRA relevance
+
+This project can provide technical building blocks and evidence
+relevant to product cybersecurity and vulnerability-handling
+activities under frameworks such as the EU Cyber Resilience Act. It
+does not by itself establish regulatory compliance -- see
+`meta-je-hygiene/README.md` and `meta-je-boot-update/README.md` for
+the specific, narrower technical connections each layer draws, and
+`PROJECT.md`'s Non-goals.
+
+## OT roadmap
+
+Current engineering focus is embedded Linux and IoT. Constrained
+industrial HMI/gateway deployment, offline operation, bounded resource
+use, and IEC 62443-aware deployment models are roadmap areas -- not
+current capabilities. See `ROADMAP.md`.
+
+## Contributing
+
+See `CONTRIBUTING.md`.
+
+## Vulnerability reporting
+
+See `SECURITY.md` -- don't open a public issue.
+
+## License and upstream attribution
+
+Licensed Apache-2.0 + NOTICE (see `LICENSE`/`NOTICE`) -- patent grant,
+attribution, no copyleft. This project integrates existing open-source
+components rather than replacing them; their own licenses and
+copyright are unaffected and retained.
+
+## Built on
 
 - [The Yocto Project / OpenEmbedded](https://www.yoctoproject.org/) --
   the build system and layer model this project itself follows.
