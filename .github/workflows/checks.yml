@@ -1,0 +1,30 @@
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  markdown-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check relative markdown links resolve
+        run: python3 .github/scripts/check_markdown_links.py
+
+  ocsf-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validator accepts a real-shaped OCSF event
+        run: |
+          python3 meta-je-detection/scripts/validate_ocsf_event.py \
+            meta-je-detection/scripts/testdata/valid-event.jsonl
+      - name: Validator rejects a malformed OCSF event
+        run: |
+          if python3 meta-je-detection/scripts/validate_ocsf_event.py \
+              meta-je-detection/scripts/testdata/invalid-event.jsonl; then
+            echo "expected validator to fail on malformed fixture, it passed"
+            exit 1
+          fi

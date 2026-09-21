@@ -1,0 +1,1 @@
+{"category_uid": 2, "class_uid": 9999, "activity_id": 99, "type_uid": 200101, "severity_id": 4, "time": "not-an-int", "metadata": {"product": {"name": "je-detection-agent"}}, "finding": {"uid": "test-finding-2"}, "vulnerabilities": [{"cve": "CVE-2026-73283"}]}
