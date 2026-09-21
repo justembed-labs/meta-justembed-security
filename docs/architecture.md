@@ -81,3 +81,34 @@ are genuine architecture gaps (the pipeline described in the top-level
 README's mermaid diagram is aspirational for those two hand-offs, not
 yet wired in code) -- tracked in `ROADMAP.md`, not silently implied to
 already work.
+
+## Platform requirements
+
+These layers target any Yocto/OpenEmbedded-built embedded Linux image,
+not a specific board or SoC:
+
+- **`meta-je-hygiene`** -- any systemd-based image. The kernel-
+  hardening-flags check needs a standard Kconfig-based kernel (true
+  for effectively any Yocto BSP).
+- **`meta-je-sbom-cve`** -- any target with a normal Yocto kernel/
+  bootloader recipe. The source-level triage pipeline (kernel/u-boot
+  CVE noise reduction) needs the build to retain a real git checkout
+  and `.config` for the package being triaged -- true by default for
+  most kernel/bootloader recipes.
+- **`meta-je-detection`** -- a kernel built with `CONFIG_AUDIT=y` +
+  `CONFIG_AUDITSYSCALL=y`, systemd, and Python 3. Any individual
+  detection rule may need its own kernel feature (the sample rule
+  needs `CONFIG_TUN=y`) -- that's a property of the rule, not the
+  layer.
+- **`meta-je-boot-update`** -- `je-swupdate-fota` needs an A/B-style
+  partition layout compatible with swupdate's raw-write mode.
+  `je-secureboot` needs a U-Boot build with FIT signature support
+  (`CONFIG_FIT`, `CONFIG_FIT_SIGNATURE`, `CONFIG_RSA`,
+  `CONFIG_OF_SEPARATE`). On SoCs whose boot ROM doesn't cryptographically
+  verify the first-stage bootloader (common on general-purpose, as
+  opposed to security-oriented, silicon tiers across most vendors),
+  the verified chain can only start *at* U-Boot -- FIT-signed
+  kernel/DT/rootfs, not a ROM-anchored chain. That's a property of the
+  silicon tier, not a limitation of this layer. See
+  `meta-je-boot-update/README.md` for exactly where the verified chain
+  starts in the current reference implementation.
