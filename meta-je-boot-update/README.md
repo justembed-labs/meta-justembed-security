@@ -88,7 +88,7 @@ Secure boot and update-integrity are the technical, structural side of
 CRA Annex I's protection-from-unauthorized-modification and
 secure-update-delivery requirements -- a technical mechanism, not a
 legal conformity determination. See
-[`CRA_TECHNICAL_MAPPING.md`](../CRA_TECHNICAL_MAPPING.md).
+[`docs/cra/CRA_TECHNICAL_MAPPING.md`](../docs/cra/CRA_TECHNICAL_MAPPING.md).
 
 ## More documentation
 
