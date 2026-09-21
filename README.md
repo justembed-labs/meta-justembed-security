@@ -89,7 +89,7 @@ the product lifecycle. These layers provide technical building blocks
 and evidence that can support those engineering activities.
 
 **They do not by themselves establish CRA compliance.** See
-[`CRA_TECHNICAL_MAPPING.md`](CRA_TECHNICAL_MAPPING.md).
+[`docs/cra/CRA_TECHNICAL_MAPPING.md`](docs/cra/CRA_TECHNICAL_MAPPING.md).
 
 ## What this is not
 

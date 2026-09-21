@@ -68,10 +68,13 @@ for a real worked example end to end.
 
 - `cve-check`'s version-range matching can't see stable/vendor-tree
   backports already merged, or catch a CPE mismatch onto an unrelated
-  CVE -- `kernel_cve_triage.py` resolves roughly a tenth of a typical
-  kernel scan's "unpatched" noise automatically, each with cited
-  evidence, and correctly leaves the rest for human review rather than
-  guessing. See [`docs/cve-triage.md`](../docs/cve-triage.md).
+  CVE -- in a real hardware reference scan, `kernel_cve_triage.py`
+  automatically resolved 9.8% of scanned kernel candidates (237 of
+  2418), each with cited evidence, and correctly left the remaining
+  90.2% for human review rather than guessing. See
+  [`docs/cve-triage.md`](../docs/cve-triage.md) for that run's exact
+  bucket breakdown -- this is one measured result, not a general
+  "typical" figure across scans.
 - The ancestor-check and config-inapplicable triage buckets depend on
   a quoted commit subject in the CVE summary (common for kernel CVEs,
   not for bootloader CVEs) -- only the CPE-mismatch keyword check

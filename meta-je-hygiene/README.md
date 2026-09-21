@@ -11,7 +11,7 @@ of the EU Cyber Resilience Act's essential cybersecurity requirements
 unauthorized access, minimized attack surface, exploitation-mitigation
 mechanisms. This is a build-time technical check, **not a legal CRA
 conformity determination** -- see
-[`CRA_TECHNICAL_MAPPING.md`](../CRA_TECHNICAL_MAPPING.md).
+[`docs/cra/CRA_TECHNICAL_MAPPING.md`](../docs/cra/CRA_TECHNICAL_MAPPING.md).
 
 ```
 IMAGE_CLASSES += "je-hygiene"
