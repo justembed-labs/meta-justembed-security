@@ -15,6 +15,7 @@ SRC_URI = " \
     file://je-detection-agent.service \
     file://je-detection-agent.init \
     file://je-detection-fluentbit.conf \
+    file://je-detection-parsers.conf \
     file://je-detection-fluentbit.service \
     file://je-detection-fluentbit.init \
     file://splunk-hec.env.example \
@@ -35,6 +36,7 @@ do_install() {
     install -d ${D}${sysconfdir}/je-detection
     install -m 0644 ${WORKDIR}/splunk-hec.env.example ${D}${sysconfdir}/je-detection/
     install -m 0644 ${WORKDIR}/je-detection-fluentbit.conf ${D}${sysconfdir}/je-detection/fluent-bit.conf
+    install -m 0644 ${WORKDIR}/je-detection-parsers.conf ${D}${sysconfdir}/je-detection/parsers.conf
 
     # /var/lib/je-detection (ausearch checkpoints) and
     # /var/log/je-detection (event output) are created at runtime by
