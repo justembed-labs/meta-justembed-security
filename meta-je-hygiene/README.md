@@ -10,9 +10,8 @@ of the EU Cyber Resilience Act's essential cybersecurity requirements
 (Annex I) -- secure-by-default configuration, protection from
 unauthorized access, minimized attack surface, exploitation-mitigation
 mechanisms. This is a build-time technical check, **not a legal CRA
-conformity determination** -- the tooling proves what's technically
-true about a build; whether that satisfies CRA obligations for a
-given product is a legal question outside this layer's scope.
+conformity determination** -- see
+[`CRA_TECHNICAL_MAPPING.md`](../CRA_TECHNICAL_MAPPING.md).
 
 ```
 IMAGE_CLASSES += "je-hygiene"
@@ -50,3 +49,8 @@ Verified end-to-end through a real `do_rootfs` build on physical
 embedded Linux hardware: an unmet enforced check correctly fails the
 build, and the JSON report lands at
 `<deploy-dir>/<image-name>.je-hygiene.json` as designed.
+
+## More documentation
+
+[`docs/architecture.md`](../docs/architecture.md) -- how this layer
+fits with the other three.
