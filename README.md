@@ -78,7 +78,9 @@ update cycle.
 
 Full index, exact commands, and raw output: [`docs/evidence/`](docs/evidence/).
 No status here is asserted without a linked entry or an explicit
-pointer to who observed it.
+pointer to who observed it. Which platforms this has actually been
+validated on (QEMU today; physical hardware planned, not yet
+started): [Platform validation matrix](docs/platform-validation-matrix.md).
 
 ## CRA relevance
 
