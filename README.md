@@ -39,10 +39,10 @@ report alone doesn't answer:
 
 | Building block | Purpose |
 |---|---|
-| Hygiene | Build-time security hygiene and selected baseline checks |
-| Evidence | SBOM, CVE evidence, and KEV/EPSS context |
-| Detect | Lightweight host detection -> OCSF -> Fluent Bit |
-| Update & Boot | Signed updates, A/B lifecycle, and verified boot where supported |
+| **Hygiene** | Build-time security hygiene and selected baseline checks |
+| **Evidence** | SBOM, CVE evidence, and KEV/EPSS context |
+| **Detect** | Lightweight host detection -> OCSF -> Fluent Bit |
+| **Update & Boot** | Signed updates, A/B lifecycle, and verified boot where supported |
 
 Each layer is independently adoptable. Full detail:
 [`docs/architecture.md`](docs/architecture.md).
@@ -127,11 +127,16 @@ capability. See [`PROJECT.md`](PROJECT.md) and
 
 ## Getting started
 
-Adding these layers to a new BSP:
-[`docs/getting-started.md`](docs/getting-started.md). For a
-from-scratch, no-hardware walkthrough, start with
-[`meta-je-example-bsp`](https://github.com/justembed-labs/meta-je-example-bsp)
-instead.
+### Try without hardware
+-> [`meta-je-example-bsp`](https://github.com/justembed-labs/meta-je-example-bsp)
+
+### Integrate into your BSP
+-> [`docs/getting-started.md`](docs/getting-started.md)
+
+### Optional: Claude Code bootstrap
+-> [`.claude/skills/meta-je-bootstrap/SKILL.md`](.claude/skills/meta-je-bootstrap/SKILL.md)
+-- an accelerator for an AI coding agent doing the integration above,
+not a requirement to use this project.
 
 ## Contributing
 
