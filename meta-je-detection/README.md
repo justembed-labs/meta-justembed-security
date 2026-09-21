@@ -73,5 +73,7 @@ channel -- new detection content lands and `auditd`/
   a real trigger through to a real OCSF event and forward, QEMU.
 - [`docs/evidence/signed-rule-update.md`](../docs/evidence/signed-rule-update.md) --
   the independent rule-bundle update, valid and tampered, QEMU.
+- [`docs/evidence/detection-resource-measurements.md`](../docs/evidence/detection-resource-measurements.md) --
+  real idle/load/burst/failure resource behavior, QEMU.
 - [`../meta-je-boot-update/README.md`](../meta-je-boot-update/README.md) --
   the update channel this layer's rule-bundle delivery rides on.

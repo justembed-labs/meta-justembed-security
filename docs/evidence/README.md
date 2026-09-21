@@ -10,6 +10,12 @@ direct pointer to one in `meta-je-example-bsp`) is a claim made in
 prose only -- true as far as this project knows, but not yet packaged
 so an outside reader can rerun it themselves.
 
+This directory is organized around *capability*: what's proven, and
+how. For *platform*: which hardware/configuration each capability has
+actually been validated on, see the
+[Platform validation matrix](../platform-validation-matrix.md) --
+QEMU today, physical hardware planned.
+
 ## Template for a new entry
 
 ```
@@ -86,6 +92,7 @@ that describes what *should* happen.
 | Rule-bundle update rollback/staging | **not implemented** -- documented as a gap, not tested as if it exists | n/a | [`signed-rule-update.md`](signed-rule-update.md) |
 | Bounded local retention (Detect event storage) | demonstrated (rotation with configurable max size/backups; real rotation confirmed) | QEMU, `qemuarm64` | [`detection-resource-behaviour.md`](detection-resource-behaviour.md) |
 | Detect resource/failure behavior | measured (idle/burst RSS+CPU, collector-unreachable behavior) | QEMU, `qemuarm64` | [`detection-resource-behaviour.md`](detection-resource-behaviour.md) |
+| Detect resource/load/failure measurements (full pass: image overhead, idle, moderate/higher/sustained load, burst, collector down/recovery, storage rotation, restart/reboot) | measured on qemuarm64 | QEMU, `qemuarm64` | [`detection-resource-measurements.md`](detection-resource-measurements.md); methodology: [`resource-measurement-methodology.md`](resource-measurement-methodology.md) |
 | `meta-je-hygiene` enforced check fails a real build | hardware-verified; standalone check independently testable without hardware | real hardware + standalone script | [`meta-je-hygiene/README.md`](../../meta-je-hygiene/README.md) |
 | `meta-je-detection` real CVE detection (CVE-2026-73283) | hardware-verified; not independently reproducible from this repository alone | real hardware | [`meta-je-detection/README.md`](../../meta-je-detection/README.md#verified-on-real-hardware) |
 | `je-swupdate-fota`, real hardware A/B cycle | hardware-verified; not independently reproducible from this repository alone | real hardware | [`meta-je-boot-update/README.md`](../../meta-je-boot-update/README.md) |
