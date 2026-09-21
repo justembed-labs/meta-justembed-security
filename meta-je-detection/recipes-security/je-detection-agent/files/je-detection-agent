@@ -11,7 +11,10 @@ this agent is generated against.
 """
 import glob
 import json
+import logging
+import logging.handlers
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -25,6 +28,26 @@ AUDIT_LOG = "/var/log/audit/audit.log"
 POLL_SECONDS = 5
 OCSF_VERSION = "1.4.0"
 
+# Bounded local retention (see docs/evidence/detection-resource-behaviour.md):
+# events.jsonl grew unbounded before this -- no rotation, no cap. Fluent
+# Bit/a real collector remains the long-term destination; this is a
+# bounded buffer/fallback, not a log-management system. Configurable via
+# env so a consuming BSP can tune for its own storage budget without
+# patching this script.
+MAX_LOG_BYTES = int(os.environ.get("JE_DETECTION_MAX_LOG_BYTES", 5 * 1024 * 1024))
+MAX_LOG_BACKUPS = int(os.environ.get("JE_DETECTION_MAX_LOG_BACKUPS", 5))
+
+# A single Linux Audit event (one syscall) is recorded across several
+# raw lines (SYSCALL, PATH, CWD, PROCTITLE, ...) that all share the same
+# msg=audit(timestamp:serial) identifier -- confirmed on real captured
+# output that treating each line as its own event produces multiple
+# duplicate OCSF findings per real trigger (6 lines -> 6 findings for
+# one openat()). Records are correlated by this identifier before a
+# detection decision is made.
+AUDIT_EVENT_RE = re.compile(r"audit\((\d+\.\d+):(\d+)\)")
+KV_RE = re.compile(r'(\w+)=("(?:[^"\\]|\\.)*"|\S+)')
+TYPE_RE = re.compile(r"^type=(\S+)")
+
 
 def load_rules():
     rules = {}
@@ -35,8 +58,107 @@ def load_rules():
     return rules
 
 
-def build_event(rule, raw_audit_line):
-    now_ms = int(time.time() * 1000)
+def parse_audit_line(line):
+    """Extracts key=value fields from one raw ausearch line. Never
+    raises on malformed input -- an unparseable line just yields an
+    empty/partial field dict rather than crashing the agent."""
+    fields = {}
+    for m in KV_RE.finditer(line):
+        key, val = m.group(1), m.group(2)
+        if len(val) >= 2 and val.startswith('"') and val.endswith('"'):
+            val = val[1:-1]
+        fields[key] = val
+    type_match = TYPE_RE.match(line)
+    fields["_type"] = type_match.group(1) if type_match else "UNKNOWN"
+    return fields
+
+
+def decode_proctitle(hexstr):
+    """proctitle= is a hex-encoded, NUL-separated argv. Falls back to
+    the raw string on anything that isn't valid hex rather than raising
+    -- a malformed/truncated proctitle field must not crash the agent."""
+    try:
+        raw = bytes.fromhex(hexstr)
+    except ValueError:
+        return hexstr
+    parts = [p for p in raw.split(b"\x00") if p]
+    return " ".join(p.decode("utf-8", "replace") for p in parts)
+
+
+def group_by_audit_event(lines):
+    """Groups raw ausearch lines by their shared audit event identifier
+    (msg=audit(timestamp:serial)), preserving first-seen order. A line
+    with no recognizable identifier gets its own single-line group
+    (safe fallback for malformed input) rather than being dropped or
+    merged incorrectly into an unrelated event.
+
+    Correlation is scoped to one poll's batch only -- ausearch reads
+    from the already-committed audit log, and the kernel audit
+    subsystem writes all records of one syscall's event as a single
+    flushed unit, so a compound event's lines are never split across
+    two separate poll cycles in practice. This keeps the design bounded
+    (no cross-poll state to leak or hang on) without needing a
+    timeout-based cache.
+
+    A line with no identifier at all is attached to the most recently
+    seen *real* (audit(...)-identified) group, when one exists --
+    confirmed on real captured output that `ausearch --format raw` can
+    still emit trailing interpreted-summary lines (e.g. `ARCH=aarch64
+    SYSCALL=openat AUID="unset" ...`) with no `audit(...)` identifier
+    of their own, immediately after a real event's raw block. Treating
+    each as its own fallback event reproduced the exact duplicate-
+    finding bug this correlation exists to fix. Only genuine leading
+    garbage -- no real event established yet -- gets its own fallback
+    group per line; orphan lines never chain onto each other, only
+    onto a real event.
+    """
+    groups = {}
+    order = []
+    fallback_counter = 0
+    last_real_id = None
+    for line in lines:
+        if not line.strip():
+            continue
+        m = AUDIT_EVENT_RE.search(line)
+        if m:
+            audit_id = f"{m.group(1)}:{m.group(2)}"
+            last_real_id = audit_id
+        elif last_real_id is not None:
+            audit_id = last_real_id
+        else:
+            fallback_counter += 1
+            audit_id = f"_unrecognized:{fallback_counter}"
+        if audit_id not in groups:
+            groups[audit_id] = []
+            order.append(audit_id)
+        groups[audit_id].append(line)
+    return [(audit_id, groups[audit_id]) for audit_id in order]
+
+
+def build_event(rule, audit_id, raw_lines):
+    parsed = [parse_audit_line(line) for line in raw_lines]
+    context = {}
+    for p in parsed:
+        for key in ("syscall", "exe", "pid", "ppid", "uid", "comm"):
+            if key in p and key not in context:
+                context[key] = p[key]
+        if p.get("_type") == "CWD" and "cwd" in p:
+            context.setdefault("cwd", p["cwd"])
+        if p.get("_type") == "PATH" and "name" in p:
+            context.setdefault("path", p["name"])
+        if p.get("_type") == "PROCTITLE" and "proctitle" in p:
+            context["proctitle"] = decode_proctitle(p["proctitle"])
+    context["audit_event_id"] = audit_id
+    context["audit_record_types"] = [p.get("_type", "UNKNOWN") for p in parsed]
+
+    # Use the audit event's own timestamp (first component of
+    # audit(<epoch>.<msec>:<serial>)) when available -- more accurate
+    # than agent-processing wall-clock time, and stable across a retry.
+    try:
+        event_time_ms = int(float(audit_id.split(":")[0]) * 1000)
+    except (ValueError, IndexError):
+        event_time_ms = int(time.time() * 1000)
+
     return {
         "activity_id": 1,       # Create
         "category_uid": 2,      # Findings
@@ -44,7 +166,7 @@ def build_event(rule, raw_audit_line):
         "type_uid": 200101,     # class_uid * 100 + activity_id
         "severity_id": rule.get("severity_id", 4),
         "state_id": 1,           # New
-        "time": now_ms,
+        "time": event_time_ms,
         "message": rule["title"],
         "is_alert": True,
         "confidence_id": rule.get("confidence_id", 3),
@@ -80,7 +202,13 @@ def build_event(rule, raw_audit_line):
                 "version": "0.1.0",
             },
         },
-        "unmapped": {"audit_raw": raw_audit_line},
+        # Real correlated context, not just the first line -- one
+        # coherent finding per audit event, not five records reduced
+        # down to whichever one happened to be read first.
+        "unmapped": {
+            "audit_context": context,
+            "audit_raw": "\n".join(raw_lines),
+        },
     }
 
 
@@ -97,7 +225,7 @@ def run_ausearch(key, checkpoint):
     )
 
 
-def poll_once(key, rule, log_fh):
+def poll_once(key, rule, event_logger):
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     checkpoint = os.path.join(CHECKPOINT_DIR, f"{key}.checkpoint")
     try:
@@ -132,12 +260,40 @@ def poll_once(key, rule, log_fh):
                 return
         else:
             return
-    for line in out.stdout.splitlines():
-        if not line.strip():
-            continue
-        event = build_event(rule, line)
-        log_fh.write(json.dumps(event) + "\n")
-        log_fh.flush()
+    for audit_id, raw_lines in group_by_audit_event(out.stdout.splitlines()):
+        event = build_event(rule, audit_id, raw_lines)
+        event_logger.info(json.dumps(event))
+
+
+class _ChmodRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """Security events shouldn't be world-readable. Plain
+    RotatingFileHandler only gets the process umask's permissions on
+    the file it opens -- re-applying chmod after every rotation (not
+    just once at startup) keeps every rotated file consistently
+    restricted, not just the first one."""
+
+    def _chmod_current(self):
+        try:
+            os.chmod(self.baseFilename, 0o640)
+        except OSError:
+            pass
+
+    def doRollover(self):
+        super().doRollover()
+        self._chmod_current()
+
+
+def make_event_logger():
+    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+    logger = logging.getLogger("je-detection-events")
+    logger.setLevel(logging.INFO)
+    handler = _ChmodRotatingFileHandler(
+        LOG_PATH, maxBytes=MAX_LOG_BYTES, backupCount=MAX_LOG_BACKUPS)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+    logger.propagate = False
+    handler._chmod_current()
+    return logger
 
 
 def main():
@@ -145,12 +301,11 @@ def main():
     if not rules:
         print(f"je-detection-agent: no rules in {RULES_DIR}, nothing "
               f"to watch", file=sys.stderr)
-    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
-    with open(LOG_PATH, "a") as log_fh:
-        while True:
-            for key, rule in rules.items():
-                poll_once(key, rule, log_fh)
-            time.sleep(POLL_SECONDS)
+    event_logger = make_event_logger()
+    while True:
+        for key, rule in rules.items():
+            poll_once(key, rule, event_logger)
+        time.sleep(POLL_SECONDS)
 
 
 if __name__ == "__main__":
