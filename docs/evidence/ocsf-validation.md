@@ -28,16 +28,22 @@ checked into `meta-je-detection/scripts/`.
 python3 meta-je-detection/scripts/validate_ocsf_event.py events.jsonl
 ```
 
-Run three ways: (1) against a synthetic, deliberately correct event;
+Run four ways: (1) against a synthetic, deliberately correct event;
 (2) against a synthetic, deliberately malformed event; (3) against 5
 real events captured from the live QEMU trigger in
-`docs/evidence/detection-event.md`.
+`docs/evidence/detection-event.md` (pre-stabilization); (4) **rerun**
+against the real post-correlation-fix event from that same evidence
+file, to confirm the audit-event grouping/context-aggregation change
+(see `docs/evidence/detection-event.md`'s "Previously observed
+issue") introduced no schema regression.
 
 ## Expected result
 
-(1) passes, (2) fails with specific, actionable errors, (3) passes --
-confirming the validator both accepts real agent output and actually
-rejects broken input rather than passing everything.
+(1) passes, (2) fails with specific, actionable errors, (3) passes,
+(4) still passes after the correlation fix -- confirming the
+validator both accepts real agent output and actually rejects broken
+input, and that the stabilization fix didn't change the event shape
+in a way that breaks validation.
 
 ## Actual result
 
@@ -49,12 +55,20 @@ an int, `class_uid` not matching the schema's own `uid`, an
 `activity_id` outside the schema's declared enum, a
 `vulnerabilities[]` entry not shaped as `{cve: {uid: str}}`).
 
-**(3) Five real captured events:** all 5 passed (`line N: OK` for each,
-exit 0).
+**(3) Five real captured events (pre-stabilization):** all 5 passed
+(`line N: OK` for each, exit 0).
+
+**(4) Post-correlation-fix regression check:** the real single-finding
+event from `docs/evidence/detection-event.md` (with the new
+`unmapped.audit_context` structure -- syscall/exe/pid/ppid/uid/comm/
+cwd/path/proctitle/audit_event_id/audit_record_types, all inside
+`unmapped`, which this validator doesn't specifically inspect but
+which must coexist with the required top-level fields it does check)
+-- `line 1: OK`, exit 0. No regression.
 
 ## Raw evidence
 
-Console output from all three runs is copied directly from the actual
+Console output from all four runs is copied directly from the actual
 script executions described above.
 
 ## Exact scope -- what this validator checks

@@ -66,6 +66,19 @@ external collector / SIEM (adopter-configured; Splunk HEC-style out of the box)
   no reboot -- see `docs/update-boot.md`.
 - Self-healing against one specific, observed `ausearch` checkpoint
   failure mode.
+- **Audit-event correlation.** `ausearch --format raw` returns several
+  related lines per syscall occurrence (`SYSCALL`, `CWD`, `PATH`,
+  `PROCTITLE`, and occasionally trailing interpreted-summary lines
+  with no `audit(...)` identifier of their own) -- the agent groups
+  these by their shared `audit(timestamp:serial)` identifier before
+  building a finding, so one real syscall event produces exactly one
+  OCSF record with aggregated context (syscall, exe, pid, ppid, uid,
+  comm, cwd, path, proctitle), not one record per raw line. See
+  `docs/evidence/detection-event.md`.
+- **Bounded local event storage.** `events.jsonl` rotates via a
+  configurable `JE_DETECTION_MAX_LOG_BYTES`/`JE_DETECTION_MAX_LOG_BACKUPS`
+  (defaults 5MB / 5 backups, a ~30MB ceiling), not unbounded growth.
+  See `docs/evidence/detection-resource-behaviour.md`.
 
 ## Unsupported / not implemented
 
@@ -86,28 +99,19 @@ external collector / SIEM (adopter-configured; Splunk HEC-style out of the box)
   and reloads immediately on `postinst` (see
   `docs/evidence/signed-rule-update.md`) -- there is no
   staged-then-confirmed activation step.
-- **One real syscall event can produce multiple OCSF events.**
-  `ausearch --format raw` returns several related lines per syscall
-  occurrence (`SYSCALL`, `CWD`, `PATH`, a continuation-fields line,
-  `PROCTITLE`), and the agent's poll loop turns each line into its own
-  OCSF record independently -- confirmed on real test hardware
-  (QEMU): one trigger produced 6 events with distinct `finding.uid`
-  but identical CVE/title/description. This is a genuine data-quality
-  characteristic of the current implementation, not deduplicated
-  anywhere in the pipeline today. See
-  `docs/evidence/detection-event.md`.
-
 ## Failure / resource considerations
 
 - **Collector unreachable:** Fluent Bit's own retry/buffering behavior
-  applies (this project adds no additional queue) -- events keep
-  accumulating in `events.jsonl` on disk regardless, since the agent
-  writes to that file independently of whether Fluent Bit can ship
-  it.
-- **`events.jsonl` growth is not bounded by this project.** No log
-  rotation, size cap, or disk-usage guard is implemented in
-  `je-detection-agent` or its packaging today -- a real, current gap,
-  not hidden. See `docs/evidence/detection-resource-behaviour.md`.
+  applies (this project adds no additional queue) -- confirmed the
+  agent keeps writing normally and neither service crash-loops or
+  spins CPU while the collector is down. See
+  `docs/evidence/detection-resource-behaviour.md`.
+- **`events.jsonl` growth is bounded, not unlimited.** Rotates at a
+  configurable size/backup-count ceiling (see "Supported
+  capabilities" above) -- local retention is bounded, and this is
+  explicitly not a guaranteed-delivery mechanism: events older than
+  the retention window are gone if Fluent Bit/a real collector never
+  shipped them.
 - **Poll interval is fixed at 5 seconds**, not configurable via a
   build-time variable today (a code constant, `POLL_SECONDS`).
 

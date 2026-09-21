@@ -72,19 +72,20 @@ that describes what *should* happen.
 | CVE scan (NVD-sourced), diff | demonstrated | QEMU, `qemuarm64` | [`sbom-cve-enrichment.md`](sbom-cve-enrichment.md) |
 | CISA KEV enrichment | demonstrated | QEMU, `qemuarm64` | [`sbom-cve-enrichment.md`](sbom-cve-enrichment.md) |
 | FIRST EPSS enrichment | demonstrated | QEMU, `qemuarm64` | [`sbom-cve-enrichment.md`](sbom-cve-enrichment.md) |
-| CVE applicability decision (one real candidate) | demonstrated | QEMU, `qemuarm64` | [`cve-applicability.md`](cve-applicability.md) |
+| CVE applicability evidence / documented disposition (one real candidate) | demonstrated | QEMU, `qemuarm64` | [`cve-applicability.md`](cve-applicability.md) |
 | `je-secureboot` FIT verification (valid image) | demonstrated | QEMU, `qemuarm64` | [`fit-verification.md`](fit-verification.md) |
 | `je-secureboot` FIT tamper rejection | demonstrated | QEMU, `qemuarm64` | [`fit-verification.md`](fit-verification.md) |
 | `je-swupdate-fota` signed A/B update (valid) | demonstrated (QEMU); hardware-verified | QEMU, `qemuarm64`; also real hardware per `meta-je-boot-update/README.md` | [`signed-ab-update.md`](signed-ab-update.md) |
 | `je-swupdate-fota` signed A/B update (tampered, rejected) | demonstrated | QEMU, `qemuarm64` | [`signed-ab-update.md`](signed-ab-update.md) |
 | `je-swupdate-fota` rollback (uncommitted update reverts) | demonstrated | QEMU, `qemuarm64` | [`ab-rollback.md`](ab-rollback.md) |
-| Detection event (audit -> agent -> OCSF) | demonstrated (QEMU); hardware-verified against a real CVE | QEMU, `qemuarm64`; also real hardware per `meta-je-detection/README.md` | [`detection-event.md`](detection-event.md) |
-| OCSF output structure check | tested (structural, see file for exact scope) | QEMU, `qemuarm64` | [`ocsf-validation.md`](ocsf-validation.md) |
-| Fluent Bit forwarding | demonstrated (local test listener, not a real SIEM) | QEMU, `qemuarm64` | [`detection-event.md`](detection-event.md) |
+| Detection event, correlated (one trigger -> one finding) | demonstrated (QEMU); hardware-verified against a real CVE | QEMU, `qemuarm64`; also real hardware per `meta-je-detection/README.md` | [`detection-event.md`](detection-event.md) |
+| OCSF generation | demonstrated (structural check, see file for exact scope) | QEMU, `qemuarm64` | [`ocsf-validation.md`](ocsf-validation.md) |
+| Fluent Bit forwarding with shipped config | demonstrated (local TLS test listener, not a real SIEM; no manual config patch) | QEMU, `qemuarm64` | [`detection-event.md`](detection-event.md) |
 | Signed rule-bundle update (valid) | demonstrated | QEMU, `qemuarm64` | [`signed-rule-update.md`](signed-rule-update.md) |
 | Signed rule-bundle update (tampered, rejected) | demonstrated | QEMU, `qemuarm64` | [`signed-rule-update.md`](signed-rule-update.md) |
 | Rule-bundle update rollback/staging | **not implemented** -- documented as a gap, not tested as if it exists | n/a | [`signed-rule-update.md`](signed-rule-update.md) |
-| Detect resource/failure behavior | measured (see file for exact scope and what's *not* bounded) | QEMU, `qemuarm64` | [`detection-resource-behaviour.md`](detection-resource-behaviour.md) |
+| Bounded local retention (Detect event storage) | demonstrated (rotation with configurable max size/backups; real rotation confirmed) | QEMU, `qemuarm64` | [`detection-resource-behaviour.md`](detection-resource-behaviour.md) |
+| Detect resource/failure behavior | measured (idle/burst RSS+CPU, collector-unreachable behavior) | QEMU, `qemuarm64` | [`detection-resource-behaviour.md`](detection-resource-behaviour.md) |
 | `meta-je-hygiene` enforced check fails a real build | hardware-verified; standalone check independently testable without hardware | real hardware + standalone script | [`meta-je-hygiene/README.md`](../../meta-je-hygiene/README.md) |
 | `meta-je-detection` real CVE detection (CVE-2026-73283) | hardware-verified; not independently reproducible from this repository alone | real hardware | [`meta-je-detection/README.md`](../../meta-je-detection/README.md#verified-on-real-hardware) |
 | `je-swupdate-fota`, real hardware A/B cycle | hardware-verified; not independently reproducible from this repository alone | real hardware | [`meta-je-boot-update/README.md`](../../meta-je-boot-update/README.md) |
