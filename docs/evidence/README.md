@@ -1,8 +1,8 @@
 # Evidence
 
-> Evidence documents describe a specific tested configuration and do
-> not imply identical assurance on other hardware, BSPs or Yocto
-> releases.
+> Evidence documents describe a specific tested configuration. They
+> do not imply identical assurance on other hardware, BSPs, Yocto
+> releases or deployment environments.
 
 This directory holds reproducible records for claims made elsewhere in
 this project's documentation. A claim without an entry here (or a
@@ -19,10 +19,12 @@ One sentence: what this entry proves.
 
 # Environment
 
-- Yocto version / branch:
+- Yocto release:
 - MACHINE:
-- Target/platform (QEMU or real hardware, and which):
-- Relevant package/layer versions:
+- target/platform:
+- relevant layer revision:
+- relevant package/version:
+- configuration:
 
 # Setup
 
@@ -39,8 +41,11 @@ Exact steps or commands run.
 
 # Raw evidence
 
-Log excerpts, file hashes, or a link to a published run (e.g. the
-GitHub Pages evidence site linked from `meta-je-example-bsp`).
+Log excerpts, file hashes, JSON/OCSF examples, or a link to a
+published run (e.g. the GitHub Pages evidence site linked from
+`meta-je-example-bsp`). Small excerpts only -- for anything larger,
+use `docs/evidence/artifacts/` and link to it, rather than pasting a
+large dump into this file.
 
 # Limitations
 
@@ -61,25 +66,28 @@ that describes what *should* happen.
 
 ## Index
 
-| Capability | Evidence | Status |
-|---|---|---|
-| SBOM generation | Published run, linked from [`meta-je-example-bsp`](https://github.com/justembed-labs/meta-je-example-bsp) ("Live evidence") | demonstrated |
-| CVE scan/diff, KEV/EPSS enrichment | Published run, linked from `meta-je-example-bsp` | demonstrated |
-| CVE applicability decision (one real candidate) | [`cve-applicability.md`](cve-applicability.md) | demonstrated |
-| `je-secureboot` FIT verification (valid image) | [`fit-verification.md`](fit-verification.md) | demonstrated (QEMU) |
-| `je-secureboot` FIT tamper rejection | [`fit-verification.md`](fit-verification.md) | demonstrated (QEMU) |
-| `je-swupdate-fota` signed A/B update | [`signed-ab-update.md`](signed-ab-update.md) | demonstrated (QEMU); hardware-verified per `meta-je-boot-update/README.md` |
-| `je-swupdate-fota` rollback (uncommitted update reverts) | [`ab-rollback.md`](ab-rollback.md) | demonstrated (QEMU) |
-| Detection event (audit -> agent -> OCSF) | [`detection-event.md`](detection-event.md) | demonstrated (QEMU); hardware-verified against a real CVE per `meta-je-detection/README.md` |
-| OCSF output structure check | [`ocsf-validation.md`](ocsf-validation.md) | tested (structural, see file for exact scope) |
-| Fluent Bit local forwarding | [`detection-event.md`](detection-event.md) | demonstrated (local listener, not a real SIEM -- see file) |
-| Signed rule-bundle update (valid) | [`signed-rule-update.md`](signed-rule-update.md) | demonstrated (QEMU) |
-| Signed rule-bundle update (tampered, rejected) | [`signed-rule-update.md`](signed-rule-update.md) | demonstrated (QEMU) |
-| Rule-bundle update rollback/staging | [`signed-rule-update.md`](signed-rule-update.md) | **not implemented** -- documented as a gap, not tested as if it exists |
-| Detect resource/failure behavior | [`detection-resource-behaviour.md`](detection-resource-behaviour.md) | measured (QEMU, see file for exact scope and what's *not* bounded) |
-| `meta-je-hygiene` enforced check fails a real build | Documented in [`meta-je-hygiene/README.md`](../../meta-je-hygiene/README.md), also standalone-testable per that README's "Usage" section | hardware-verified; standalone check independently testable without hardware |
-| `meta-je-detection` real CVE detection (CVE-2026-73283, hardware) | Documented in [`meta-je-detection/README.md`](../../meta-je-detection/README.md#verified-on-real-hardware) | hardware-verified; not independently reproducible from this repository alone |
-| `je-swupdate-fota`, real hardware A/B cycle | Documented in [`meta-je-boot-update/README.md`](../../meta-je-boot-update/README.md) | hardware-verified; not independently reproducible from this repository alone |
+| Capability | Status | Environment | Evidence |
+|---|---|---|---|
+| SBOM generation | demonstrated | QEMU, `qemuarm64` | [`sbom-cve-enrichment.md`](sbom-cve-enrichment.md); published run also linked from [`meta-je-example-bsp`](https://github.com/justembed-labs/meta-je-example-bsp) |
+| CVE scan (NVD-sourced), diff | demonstrated | QEMU, `qemuarm64` | [`sbom-cve-enrichment.md`](sbom-cve-enrichment.md) |
+| CISA KEV enrichment | demonstrated | QEMU, `qemuarm64` | [`sbom-cve-enrichment.md`](sbom-cve-enrichment.md) |
+| FIRST EPSS enrichment | demonstrated | QEMU, `qemuarm64` | [`sbom-cve-enrichment.md`](sbom-cve-enrichment.md) |
+| CVE applicability decision (one real candidate) | demonstrated | QEMU, `qemuarm64` | [`cve-applicability.md`](cve-applicability.md) |
+| `je-secureboot` FIT verification (valid image) | demonstrated | QEMU, `qemuarm64` | [`fit-verification.md`](fit-verification.md) |
+| `je-secureboot` FIT tamper rejection | demonstrated | QEMU, `qemuarm64` | [`fit-verification.md`](fit-verification.md) |
+| `je-swupdate-fota` signed A/B update (valid) | demonstrated (QEMU); hardware-verified | QEMU, `qemuarm64`; also real hardware per `meta-je-boot-update/README.md` | [`signed-ab-update.md`](signed-ab-update.md) |
+| `je-swupdate-fota` signed A/B update (tampered, rejected) | demonstrated | QEMU, `qemuarm64` | [`signed-ab-update.md`](signed-ab-update.md) |
+| `je-swupdate-fota` rollback (uncommitted update reverts) | demonstrated | QEMU, `qemuarm64` | [`ab-rollback.md`](ab-rollback.md) |
+| Detection event (audit -> agent -> OCSF) | demonstrated (QEMU); hardware-verified against a real CVE | QEMU, `qemuarm64`; also real hardware per `meta-je-detection/README.md` | [`detection-event.md`](detection-event.md) |
+| OCSF output structure check | tested (structural, see file for exact scope) | QEMU, `qemuarm64` | [`ocsf-validation.md`](ocsf-validation.md) |
+| Fluent Bit forwarding | demonstrated (local test listener, not a real SIEM) | QEMU, `qemuarm64` | [`detection-event.md`](detection-event.md) |
+| Signed rule-bundle update (valid) | demonstrated | QEMU, `qemuarm64` | [`signed-rule-update.md`](signed-rule-update.md) |
+| Signed rule-bundle update (tampered, rejected) | demonstrated | QEMU, `qemuarm64` | [`signed-rule-update.md`](signed-rule-update.md) |
+| Rule-bundle update rollback/staging | **not implemented** -- documented as a gap, not tested as if it exists | n/a | [`signed-rule-update.md`](signed-rule-update.md) |
+| Detect resource/failure behavior | measured (see file for exact scope and what's *not* bounded) | QEMU, `qemuarm64` | [`detection-resource-behaviour.md`](detection-resource-behaviour.md) |
+| `meta-je-hygiene` enforced check fails a real build | hardware-verified; standalone check independently testable without hardware | real hardware + standalone script | [`meta-je-hygiene/README.md`](../../meta-je-hygiene/README.md) |
+| `meta-je-detection` real CVE detection (CVE-2026-73283) | hardware-verified; not independently reproducible from this repository alone | real hardware | [`meta-je-detection/README.md`](../../meta-je-detection/README.md#verified-on-real-hardware) |
+| `je-swupdate-fota`, real hardware A/B cycle | hardware-verified; not independently reproducible from this repository alone | real hardware | [`meta-je-boot-update/README.md`](../../meta-je-boot-update/README.md) |
 
 Rows marked "hardware-verified" without a linked evidence file here
 reflect a real run this project's own engineering team observed

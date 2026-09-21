@@ -1,9 +1,11 @@
 ## Claim
 
-`je-swupdate-fota` performs a real signed A/B update on QEMU: a valid
-signed `.swu` is verified and written to the inactive partition, the
-system boots the new copy, and the correct slot is active afterward --
-confirmed against actual disk state, not inferred from log messages.
+`je-swupdate-fota` performs a real signed A/B update on QEMU, proven
+both ways: a valid signed `.swu` is verified and written to the
+inactive partition, the system boots the new copy, and the correct
+slot is active afterward; a tampered `.swu` is rejected before any
+write occurs -- both confirmed against actual disk state, not
+inferred from log messages.
 
 ## Environment
 
@@ -27,6 +29,7 @@ dev RSA keypair as `je-secureboot`'s.
 
 ## Test
 
+**Positive case:**
 1. Boot the system from `rootA`.
 2. Copy the signed `.swu` onto the running system (a second, temporary
    virtio-blk "disk" carrying the raw `.swu` bytes, `dd`'d off onto
@@ -36,15 +39,24 @@ dev RSA keypair as `je-secureboot`'s.
    running system's own `root=` to pick the *other* copy and invokes
    `swupdate -i ... -e stable,copyN -k /etc/swupdate.pem -m`.
 
+**Negative case:** same starting disk snapshot, same procedure, but
+with one byte flipped in the copied `.swu` (offset 23144448 of
+46288896 bytes, inside the compressed rootfs payload -- well past any
+cpio header, so the archive structure itself stays parseable and only
+the payload content changes) via `je-swupdate-select
+/root/update-tampered.swu`.
+
 ## Expected result
 
-swupdate verifies the signature, writes the new rootfs to the inactive
-partition, and the activation script records the candidate slot on the
-state partition.
+Positive: swupdate verifies the signature, writes the new rootfs to
+the inactive partition, and the activation script records the
+candidate slot on the state partition. Negative: swupdate detects the
+per-file hash mismatch and refuses to install, before any write to
+the inactive partition or the state partition.
 
 ## Actual result
 
-Real console output:
+**Positive case**, real console output:
 
 ```
 [INFO ] : SWUPDATE running :  Installation in progress
@@ -63,10 +75,23 @@ Continuing to the next boot (see `docs/update-boot.md` for the full
 trial-boot sequence): the kernel mounts the *new* filesystem's own UUID
 (`7d124cd8-...`) -- the candidate slot is genuinely the one that boots.
 
+**Negative case**, real console output:
+
+```
+[INFO ] : SWUPDATE started :  Software Update started !
+[ERROR] : SWUPDATE failed [0] ERROR : HASH mismatch : dd81c50e889fbffd8cc2ba94f6de94146a495d2be0b1554d95c2c9c489216ef9 <--> b5ea36f327f42043ff80b3facd246be8c74e78ac3afa960d575697263abe902e
+[ERROR] : SWUPDATE failed [1] Image invalid or corrupted. Not installing ...
+[ERROR] : SWUPDATE failed [0] ERROR : SWUpdate *failed* !
+```
+
+confirmed against real disk state: the state partition's `bootstate`
+file still reads `good` (its pre-attempt value) after the rejected
+attempt -- no write, no arming, no candidate recorded.
+
 ## Raw evidence
 
-The console transcript and the two disk-state reads above are direct
-output from the real test run.
+The console transcripts and the disk-state reads above are direct
+output from the real test runs.
 
 ## Limitations
 
@@ -87,6 +112,12 @@ output from the real test run.
 - The "health decision" that leads to committing this update is
   binary and shallow (reached multi-user boot) -- see
   `docs/evidence/ab-rollback.md` and `docs/update-boot.md`.
+- The negative case catches a **payload hash mismatch**, protected by
+  the RSA signature over `sw-description` (which declares that hash)
+  -- the same trust boundary as `docs/evidence/signed-rule-update.md`'s
+  negative case. A stripped/corrupted `sw-description.sig` itself
+  (signature-only tamper, hash left intact) was not separately tested
+  here.
 
 ## Reproduction
 
