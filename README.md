@@ -69,7 +69,7 @@ update cycle.
 | Capability | Status | Evidence |
 |---|---|---|
 | SBOM / CVE scan, diff, KEV/EPSS | demonstrated | [published run](https://justembed-labs.github.io/meta-je-example-bsp/) |
-| CVE applicability (real candidate) | demonstrated | [`cve-applicability.md`](docs/evidence/cve-applicability.md) |
+| CVE applicability evidence / documented disposition (real candidate) | demonstrated | [`cve-applicability.md`](docs/evidence/cve-applicability.md) |
 | Detection -> OCSF -> Fluent Bit | demonstrated (QEMU); hardware-verified against a real CVE | [`detection-event.md`](docs/evidence/detection-event.md) |
 | Signed rule-bundle update | demonstrated (QEMU) | [`signed-rule-update.md`](docs/evidence/signed-rule-update.md) |
 | Signed A/B firmware update | demonstrated (QEMU); hardware-verified | [`signed-ab-update.md`](docs/evidence/signed-ab-update.md) |

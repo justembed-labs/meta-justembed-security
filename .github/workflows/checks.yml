@@ -28,3 +28,11 @@ jobs:
             echo "expected validator to fail on malformed fixture, it passed"
             exit 1
           fi
+
+  detection-agent-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit-event correlation unit tests
+        run: |
+          python3 meta-je-detection/scripts/test_detection_agent.py -v
