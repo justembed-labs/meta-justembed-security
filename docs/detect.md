@@ -99,19 +99,30 @@ external collector / SIEM (adopter-configured; Splunk HEC-style out of the box)
   and reloads immediately on `postinst` (see
   `docs/evidence/signed-rule-update.md`) -- there is no
   staged-then-confirmed activation step.
+
 ## Failure / resource considerations
 
 - **Collector unreachable:** Fluent Bit's own retry/buffering behavior
   applies (this project adds no additional queue) -- confirmed the
   agent keeps writing normally and neither service crash-loops or
-  spins CPU while the collector is down. See
-  `docs/evidence/detection-resource-behaviour.md`.
+  spins CPU while the collector is down. Confirmed separately that
+  buffered events can be **permanently lost**, not just delayed, if
+  the outage outlasts Fluent Bit's own retry window (memory-only
+  storage in the shipped config) -- no delivery guarantee is claimed.
+  See `docs/evidence/detection-resource-measurements.md`.
 - **`events.jsonl` growth is bounded, not unlimited.** Rotates at a
   configurable size/backup-count ceiling (see "Supported
   capabilities" above) -- local retention is bounded, and this is
   explicitly not a guaranteed-delivery mechanism: events older than
   the retention window are gone if Fluent Bit/a real collector never
   shipped them.
+- **Local event storage does not survive a reboot on the reference
+  image.** `/var/log` is a `tmpfs` mount (`volatile-binds`, standard
+  Poky behavior, not specific to this layer) -- confirmed directly
+  that both the live `events.jsonl` and any rotated backups are gone
+  after a reboot. Detection and forwarding both resume correctly
+  post-reboot; only the local history is lost. Fluent Bit/a real
+  external collector is the only durable destination.
 - **Poll interval is fixed at 5 seconds**, not configurable via a
   build-time variable today (a code constant, `POLL_SECONDS`).
 
