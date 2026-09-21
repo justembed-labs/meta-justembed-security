@@ -10,33 +10,15 @@ IMAGE_INSTALL:append = " je-detection-agent je-rule-bundle"
 
 ## Architecture
 
-- **`je-rule-bundle`** -- one auditd rule + one JSON descriptor per CVE
-  (`rules.d/<CVE>.rules`, the actual `-w`/`-a` audit rule; `rules.d/
-  <CVE>.json`, title/description/severity/observables/ATT&CK mapping,
-  keyed by the same `audit_key`). Deliberately its **own recipe**, not
-  part of `je-detection-agent`: the rule bundle is versioned and signed
-  independently of firmware, shipped over the same secure channel as
-  the FOTA mechanism (`meta-je-boot-update`) but on its own, faster
-  cadence -- that decoupling is what actually closes the patch-latency
-  gap.
-- **Detection engine: auditd** -- kernel-native, works on any target.
-  Falco/eBPF is a natural future upgrade path for targets whose kernel
-  qualifies (`CONFIG_BPF_SYSCALL`/BTF), not required today.
-- **`je-detection-agent`** (Python, stdlib only) polls `ausearch -k
-  <key> -if <audit.log> --checkpoint ...` per rule in `je-rule-bundle`
-  and emits matches as OCSF **Security Finding** (`class_uid 2001`)
-  JSON lines to `/var/log/je-detection/events.jsonl`. Detection + OCSF
-  formatting only -- no transport. Self-heals a corrupted `ausearch`
-  checkpoint rather than staying silently wedged.
-- **Fluent Bit** (`meta-oe`'s `fluentbit` recipe -- binary is
-  `/usr/bin/td-agent-bit`, legacy branding, not `fluent-bit`) tails
-  that file and ships events downstream (e.g. to a SIEM's HTTP Event
-  Collector-style endpoint), `sourcetype=ocsf:2001`, as its own
-  systemd unit (`je-detection-fluentbit`), independent of `fluentbit`'s
-  own default unit.
-- Backend host/port/token are **never baked into the image** --
-  `/etc/je-detection/splunk-hec.env` (copy from `splunk-hec.env.example`
-  and fill in on the target) is read by the Fluent Bit unit at start.
+`je-rule-bundle` (one auditd rule + one OCSF-mapping JSON descriptor
+per CVE) ships independently of firmware, over the same signed channel
+as `meta-je-boot-update`'s FOTA mechanism but on its own, faster
+cadence -- that decoupling is what closes the patch-latency gap.
+`je-detection-agent` (Python, stdlib only) polls auditd via `ausearch`
+and emits matches as OCSF Security Finding JSON lines; Fluent Bit
+tails and ships them downstream, with backend host/port/token never
+baked into the image. Full pipeline, exact commands, and what's
+supported vs. not: [`docs/detect.md`](../docs/detect.md).
 
 ## OCSF fields
 
@@ -81,5 +63,15 @@ agent with no reboot.
 Rule-bundle content ships as its own signed, no-reboot update
 (swupdate's `rawfile` handler) through `meta-je-boot-update`'s FOTA
 channel -- new detection content lands and `auditd`/
-`je-detection-agent` hot-reload with no firmware image involved. See
-`meta-je-boot-update/README.md`.
+`je-detection-agent` hot-reload with no firmware image involved.
+
+## More documentation
+
+- [`docs/detect.md`](../docs/detect.md) -- full pipeline, OCSF field
+  detail, supported/unsupported capabilities, resource considerations.
+- [`docs/evidence/detection-event.md`](../docs/evidence/detection-event.md) --
+  a real trigger through to a real OCSF event and forward, QEMU.
+- [`docs/evidence/signed-rule-update.md`](../docs/evidence/signed-rule-update.md) --
+  the independent rule-bundle update, valid and tampered, QEMU.
+- [`../meta-je-boot-update/README.md`](../meta-je-boot-update/README.md) --
+  the update channel this layer's rule-bundle delivery rides on.
