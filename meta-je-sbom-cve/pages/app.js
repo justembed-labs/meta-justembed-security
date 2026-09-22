@@ -269,14 +269,35 @@
     if (!records.length) return h("p", { class: "muted", text: "No rows." });
     var head = records[0];
     var summaryCol = head.indexOf("summary");
-    var rows = records.slice(1).filter(function (r) { return r.length === head.length; }).map(function (r) {
+    var severityCol = head.indexOf("severity");
+    var dataRows = records.slice(1).filter(function (r) { return r.length === head.length; });
+
+    var wrap = h("div", {});
+    if (severityCol >= 0) {
+      var counts = {};
+      dataRows.forEach(function (r) {
+        var s = (r[severityCol] || "unknown").toLowerCase();
+        counts[s] = (counts[s] || 0) + 1;
+      });
+      var cards = h("div", { class: "cards" });
+      [["critical", "crit"], ["high", "high"], ["medium", "med"], ["low", "low"], ["unknown", ""]].forEach(function (s) {
+        if (!counts[s[0]]) return;
+        cards.appendChild(h("div", { class: "card " + s[1] }, [
+          h("div", { class: "n", text: String(counts[s[0]]) }), h("div", { text: s[0] }),
+        ]));
+      });
+      wrap.appendChild(cards);
+    }
+
+    var rows = dataRows.map(function (r) {
       if (summaryCol >= 0 && r[summaryCol] && r[summaryCol].length > 160) {
         r = r.slice();
         r[summaryCol] = r[summaryCol].replace(/\s+/g, " ").slice(0, 160) + "…";
       }
       return r;
     });
-    return tableFrom(head, rows, { filterable: true });
+    wrap.appendChild(tableFrom(head, rows, { filterable: true }));
+    return wrap;
   }
 
   function renderTriage(base, body) {
