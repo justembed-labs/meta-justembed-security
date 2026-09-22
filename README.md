@@ -40,7 +40,7 @@ report alone doesn't answer:
 | Building block | Purpose |
 |---|---|
 | **Hygiene** | Build-time security hygiene and selected baseline checks |
-| **Evidence** | SBOM, CVE evidence, and KEV/EPSS context |
+| **Evidence** | Builds on Yocto/OpenEmbedded CVE tooling, adding KEV/EPSS context and disposition evidence |
 | **Detect** | Lightweight host detection -> OCSF -> Fluent Bit |
 | **Update & Boot** | Signed updates, A/B lifecycle, and verified boot where supported |
 
@@ -110,6 +110,8 @@ Full non-goals: [`PROJECT.md`](PROJECT.md).
 [Linux Audit](https://github.com/linux-audit/audit-userspace) ·
 [Fluent Bit](https://fluentbit.io/) ·
 [OCSF](https://schema.ocsf.io/) ·
+[SPDX](https://spdx.dev/) ·
+[OpenVEX](https://github.com/openvex/spec) ·
 [NVD](https://nvd.nist.gov/) ·
 [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) ·
 [FIRST EPSS](https://www.first.org/epss/)
