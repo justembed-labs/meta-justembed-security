@@ -160,19 +160,47 @@
     });
   }
 
+  var TRIAGE_BUCKETS = [
+    ["config_inapplicable_candidates", "config-inapplicable"],
+    ["fixed_version_candidates", "fixed-version"],
+    ["cpe_mismatch_candidates", "CPE mismatch"],
+    ["needs_human_review", "needs human review"],
+  ];
+
+  // triage-kernel*.json (thousands of per-CVE entries, 100s of KB) are
+  // evidence for an auditor, not a summary for this page -- render
+  // bucket counts only, link the full report instead of inlining it.
+  function bucketSummary(title, report, mdPath) {
+    var wrap = h("div", {});
+    wrap.appendChild(h("h3", { text: title }));
+    if (!report) { wrap.appendChild(h("p", { class: "muted", text: "Not run for this package." })); return wrap; }
+    var cards = h("div", { class: "cards" });
+    TRIAGE_BUCKETS.forEach(function (b) {
+      var n = (report[b[0]] || []).length;
+      cards.appendChild(h("div", { class: "card" + (b[0] === "needs_human_review" ? " high" : "") }, [
+        h("div", { class: "n", text: String(n) }), h("div", { text: b[1] }),
+      ]));
+    });
+    wrap.appendChild(cards);
+    wrap.appendChild(h("p", { class: "muted" }, [
+      h("a", { href: mdPath, text: "full per-CVE report" }),
+    ]));
+    return wrap;
+  }
+
   function renderTriage(base, body) {
     body.textContent = "loading…";
     Promise.all([
       getJSON(base + "parsed/cve_summary.json").catch(function () { return null; }),
       getJSON(base + "triage.json").catch(function () { return null; }),
       getText(base + "triage.md"),
-      getText(base + "triage-kernel.md"),
-      getText(base + "triage-kernel-upstream.md"),
-      getText(base + "triage-uboot.md"),
+      getJSON(base + "triage-kernel.json").catch(function () { return null; }),
+      getJSON(base + "triage-kernel-upstream.json").catch(function () { return null; }),
+      getJSON(base + "triage-uboot.json").catch(function () { return null; }),
     ]).then(function (r) {
-      var sum = r[0], triage = r[1], triageMd = r[2], kernelMd = r[3], kernelUpstreamMd = r[4], ubootMd = r[5];
+      var sum = r[0], triage = r[1], triageMd = r[2], kernelReport = r[3], kernelUpstreamReport = r[4], ubootReport = r[5];
       body.innerHTML = "";
-      if (!triage && !kernelMd && !kernelUpstreamMd) {
+      if (!triage && !kernelReport && !kernelUpstreamReport) {
         body.innerHTML = "<p class='muted'>No triage/noise-reduction data for this run.</p>";
         return;
       }
@@ -180,7 +208,7 @@
         var raw = (sum.by_status || {}).Unpatched || 0;
         var after = triage.total_cves;
         var pct = raw > 0 ? Math.round((1 - after / raw) * 100) : 0;
-        body.appendChild(h("h2", { text: "Unpatched CVEs: before vs. after noise reduction" }));
+        body.appendChild(h("h2", { text: "Unpatched CVEs: before vs. after noise reduction (all packages)" }));
         var cards = h("div", { class: "cards" });
         cards.appendChild(h("div", { class: "card" }, [
           h("div", { class: "n", text: String(raw) }), h("div", { text: "raw unpatched" }),
@@ -195,15 +223,17 @@
           h("div", { class: "n", text: String(triage.kev_hits || 0) }), h("div", { text: "confirmed exploited (KEV)" }),
         ]));
         body.appendChild(cards);
-        body.appendChild(h("p", { class: "muted", text:
-          "Applies across all packages -- see the reports below for the kernel-specific breakdown (local git-ancestor triage and, where present, the upstream CNA-data triage)." }));
       }
-      [["KEV/EPSS priority triage", triageMd], ["Kernel triage (local)", kernelMd],
-       ["Kernel triage (upstream CNA data)", kernelUpstreamMd], ["U-Boot triage", ubootMd]].forEach(function (sec) {
-        if (!sec[1]) return;
-        body.appendChild(h("h2", { text: sec[0] }));
-        body.appendChild(h("div", { html: window.md.render(sec[1]) }));
-      });
+      body.appendChild(h("h2", { text: "Kernel triage, by bucket" }));
+      body.appendChild(h("p", { class: "muted", text:
+        "Each CVE lands in one bucket. \"Needs human review\" is what's actually left to look at -- every other bucket has a concrete, cited reason it's excluded." }));
+      body.appendChild(bucketSummary("Local (git-ancestor check)", kernelReport, base + "triage-kernel.md"));
+      body.appendChild(bucketSummary("Upstream (kernel.org CNA data + compiled-sources)", kernelUpstreamReport, base + "triage-kernel-upstream.md"));
+      if (ubootReport) body.appendChild(bucketSummary("U-Boot", ubootReport, base + "triage-uboot.md"));
+      if (triageMd) {
+        body.appendChild(h("h2", { text: "KEV / EPSS priority (confirmed or likely exploited, after noise reduction)" }));
+        body.appendChild(h("div", { html: window.md.render(triageMd) }));
+      }
     });
   }
 
