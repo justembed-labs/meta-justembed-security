@@ -85,6 +85,7 @@
       app.appendChild(h("div", { class: "tabs row" }, [
         tabBtn("Diff", "diff", route),
         tabBtn("Full", "full", route),
+        tabBtn("Triage", "triage", route),
         tabBtn("Layer inventory", "inventory", route),
       ]));
       var body = h("div", {});
@@ -102,6 +103,7 @@
       app.appendChild(dl);
 
       if (route.tab === "full") return renderFull(base, body);
+      if (route.tab === "triage") return renderTriage(base, body);
       if (route.tab === "inventory") return renderMd(base + "inventory.md", body, "No layer inventory for this run.");
       return renderDiff(base, run, body);
     }).catch(function (e) { app.textContent = "Run not found: " + e.message; });
@@ -155,6 +157,53 @@
         var rows = comps.trim().split("\n").map(function (l) { return l.split("\t"); });
         body.appendChild(tableFrom(["component", "version", "license"], rows.map(function (c) { return c.slice(0, 3); })));
       }
+    });
+  }
+
+  function renderTriage(base, body) {
+    body.textContent = "loading…";
+    Promise.all([
+      getJSON(base + "parsed/cve_summary.json").catch(function () { return null; }),
+      getJSON(base + "triage.json").catch(function () { return null; }),
+      getText(base + "triage.md"),
+      getText(base + "triage-kernel.md"),
+      getText(base + "triage-kernel-upstream.md"),
+      getText(base + "triage-uboot.md"),
+    ]).then(function (r) {
+      var sum = r[0], triage = r[1], triageMd = r[2], kernelMd = r[3], kernelUpstreamMd = r[4], ubootMd = r[5];
+      body.innerHTML = "";
+      if (!triage && !kernelMd && !kernelUpstreamMd) {
+        body.innerHTML = "<p class='muted'>No triage/noise-reduction data for this run.</p>";
+        return;
+      }
+      if (sum && triage) {
+        var raw = (sum.by_status || {}).Unpatched || 0;
+        var after = triage.total_cves;
+        var pct = raw > 0 ? Math.round((1 - after / raw) * 100) : 0;
+        body.appendChild(h("h2", { text: "Unpatched CVEs: before vs. after noise reduction" }));
+        var cards = h("div", { class: "cards" });
+        cards.appendChild(h("div", { class: "card" }, [
+          h("div", { class: "n", text: String(raw) }), h("div", { text: "raw unpatched" }),
+        ]));
+        cards.appendChild(h("div", { class: "card" }, [
+          h("div", { class: "n", text: String(after) }), h("div", { text: "after noise reduction" }),
+        ]));
+        cards.appendChild(h("div", { class: "card" }, [
+          h("div", { class: "n", text: pct + "%" }), h("div", { text: "reduction" }),
+        ]));
+        cards.appendChild(h("div", { class: "card crit" }, [
+          h("div", { class: "n", text: String(triage.kev_hits || 0) }), h("div", { text: "confirmed exploited (KEV)" }),
+        ]));
+        body.appendChild(cards);
+        body.appendChild(h("p", { class: "muted", text:
+          "Applies across all packages -- see the reports below for the kernel-specific breakdown (local git-ancestor triage and, where present, the upstream CNA-data triage)." }));
+      }
+      [["KEV/EPSS priority triage", triageMd], ["Kernel triage (local)", kernelMd],
+       ["Kernel triage (upstream CNA data)", kernelUpstreamMd], ["U-Boot triage", ubootMd]].forEach(function (sec) {
+        if (!sec[1]) return;
+        body.appendChild(h("h2", { text: sec[0] }));
+        body.appendChild(h("div", { html: window.md.render(sec[1]) }));
+      });
     });
   }
 
