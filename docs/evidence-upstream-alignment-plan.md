@@ -144,26 +144,32 @@ need a compatibility note or a rerun once any such migration lands.
 
 ### P1 (next, needs its own dedicated pass)
 
-- **Kernel config-inapplicable wrapper -- code done, CI wiring not
-  done.** `scripts/kernel_cve_upstream_triage.py` calls
+- **Kernel config-inapplicable wrapper -- code done and wired into
+  `je-cve-diff.bbclass`, gated off by default.**
+  `scripts/kernel_cve_upstream_triage.py` calls
   `improve_kernel_cve_report.py` for real and re-buckets its output
   into `kernel_cve_triage.py`'s existing shape; `prioritize_cves.py`
-  confirmed to consume it unmodified. Verified against a real
-  `am335x-smarc-t335x-hmi` evidence run (2026-09-15T045754Z):
-  kernel.org's real CNA data tracks 20,284 kernel CVEs for this kernel
-  version versus 15,001 from NVD alone, and 5,448 Unpatched versus
-  2,418 -- switching data source surfaces real CVEs NVD doesn't track,
-  it does not by itself reduce the count. The actual noise-reduction
-  half (config-inapplicable filtering) needs
-  `SPDX_INCLUDE_COMPILED_SOURCES:pn-linux-yocto = "1"` and a real
-  rebuild to measure -- not done in this pass, no compiled-sources data
-  was available locally. Remaining work: enable that config flag,
-  clone `linux-vulns` in CI (531MB, real network dependency on
-  kernel.org), wire the wrapper into `je-cve-diff.bbclass` (currently a
-  standalone script only), and get the actual filtered
-  config-inapplicable number. See `docs/cve-triage.md` for the full
-  writeup and the real `detail`-field compatibility bug hit along the
-  way.
+  confirmed to consume it unmodified. `je-cve-diff.bbclass` now clones/
+  fetches `linux-vulns`, auto-extracts the kernel's recipe SPDX
+  document from the run's own `sbom-recipes.spdx.tar.zst` (archive
+  layout confirmed real), and calls the wrapper -- all behind
+  `JE_EVIDENCE_ENABLE_UPSTREAM_KERNEL_TRIAGE ??= "0"`.
+
+  Verified against a real `am335x-smarc-t335x-hmi` evidence run
+  (2026-09-15T045754Z): kernel.org's real CNA data tracks 20,284
+  kernel CVEs for this kernel version versus 15,001 from NVD alone,
+  and 5,448 Unpatched versus 2,418 -- switching data source surfaces
+  real CVEs NVD doesn't track, it does not by itself reduce the count.
+
+  **Still unmeasured**: the actual noise-reduction half
+  (config-inapplicable filtering) needs the BSP to separately set
+  `SPDX_INCLUDE_COMPILED_SOURCES:pn-linux-ti-staging = "1"` and run a
+  real build -- extraction of the kernel SPDX document is verified
+  working, but no build with that flag enabled has been run yet, so
+  whether it actually reduces the count (per Yocto's 70-80% claim) is
+  not yet confirmed for this BSP. See `docs/cve-triage.md` for the
+  full writeup and the real `detail`-field compatibility bug hit along
+  the way.
 - Evaluate migrating `je-sbom.bbclass` from `create-spdx` (currently
   SPDX 2.2) to `create-spdx-3.0` explicitly, updating
   `spdx_components.py` for the new output shape. Prerequisite for
