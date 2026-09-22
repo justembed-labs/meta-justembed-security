@@ -188,6 +188,21 @@
     return wrap;
   }
 
+  function remainingTable(csvText) {
+    var records = parseCsvRecords(csvText.replace(/﻿/, ""));
+    if (!records.length) return h("p", { class: "muted", text: "No rows." });
+    var head = records[0];
+    var summaryCol = head.indexOf("summary");
+    var rows = records.slice(1).filter(function (r) { return r.length === head.length; }).map(function (r) {
+      if (summaryCol >= 0 && r[summaryCol] && r[summaryCol].length > 160) {
+        r = r.slice();
+        r[summaryCol] = r[summaryCol].replace(/\s+/g, " ").slice(0, 160) + "…";
+      }
+      return r;
+    });
+    return tableFrom(head, rows);
+  }
+
   function renderTriage(base, body) {
     body.textContent = "loading…";
     Promise.all([
@@ -197,8 +212,10 @@
       getJSON(base + "triage-kernel.json").catch(function () { return null; }),
       getJSON(base + "triage-kernel-upstream.json").catch(function () { return null; }),
       getJSON(base + "triage-uboot.json").catch(function () { return null; }),
+      getText(base + "triage.filtered.csv"),
     ]).then(function (r) {
-      var sum = r[0], triage = r[1], triageMd = r[2], kernelReport = r[3], kernelUpstreamReport = r[4], ubootReport = r[5];
+      var sum = r[0], triage = r[1], triageMd = r[2], kernelReport = r[3], kernelUpstreamReport = r[4],
+          ubootReport = r[5], filteredCsv = r[6];
       body.innerHTML = "";
       if (!triage && !kernelReport && !kernelUpstreamReport) {
         body.innerHTML = "<p class='muted'>No triage/noise-reduction data for this run.</p>";
@@ -224,14 +241,20 @@
         ]));
         body.appendChild(cards);
       }
-      body.appendChild(h("h2", { text: "Kernel triage, by bucket" }));
+      if (filteredCsv) {
+        body.appendChild(h("h2", { text: "Everything left for human review (" + (triage ? triage.total_cves : "?") + ")" }));
+        body.appendChild(h("p", { class: "muted", text:
+          "The actual remaining list, all packages -- click a column to sort. This is what the \"after noise reduction\" count above refers to." }));
+        body.appendChild(remainingTable(filteredCsv));
+      }
+      body.appendChild(h("h2", { text: "Kernel triage, by source (standalone breakdown)" }));
       body.appendChild(h("p", { class: "muted", text:
-        "Each CVE lands in one bucket. \"Needs human review\" is what's actually left to look at -- every other bucket has a concrete, cited reason it's excluded." }));
+        "Not the combined result above -- each source's own bucket counts if it ran alone. The two sources catch different, overlapping cases, so neither one's \"needs human review\" count matches the real combined total." }));
       body.appendChild(bucketSummary("Local (git-ancestor check)", kernelReport, base + "triage-kernel.md"));
       body.appendChild(bucketSummary("Upstream (kernel.org CNA data + compiled-sources)", kernelUpstreamReport, base + "triage-kernel-upstream.md"));
       if (ubootReport) body.appendChild(bucketSummary("U-Boot", ubootReport, base + "triage-uboot.md"));
       if (triageMd) {
-        body.appendChild(h("h2", { text: "KEV / EPSS priority (confirmed or likely exploited, after noise reduction)" }));
+        body.appendChild(h("h2", { text: "KEV / EPSS priority (confirmed or likely exploited)" }));
         body.appendChild(h("div", { html: window.md.render(triageMd) }));
       }
     });
@@ -250,6 +273,26 @@
       else if (c === '"') q = true; else if (c === ",") { out.push(cur); cur = ""; } else cur += c;
     }
     out.push(cur); return out;
+  }
+  // RFC4180-aware: unlike splitCsv/csvTable above, handles quoted fields
+  // that themselves contain newlines (real case: parse_cve.py's CVE
+  // summary column spans multiple lines for most kernel CVEs -- a plain
+  // line-split mangles those into broken rows).
+  function parseCsvRecords(text) {
+    var rows = [], row = [], cur = "", q = false;
+    for (var i = 0; i < text.length; i++) {
+      var c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+        else cur += c;
+      } else if (c === '"') q = true;
+      else if (c === ",") { row.push(cur); cur = ""; }
+      else if (c === "\r") { /* skip */ }
+      else if (c === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
+      else cur += c;
+    }
+    if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+    return rows;
   }
   function tableFrom(head, rows) {
     var sortState = { col: -1, dir: 1 };
