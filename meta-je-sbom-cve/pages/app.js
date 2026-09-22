@@ -317,6 +317,12 @@
         ]));
         body.appendChild(cards);
       }
+      if (triageMd) {
+        body.appendChild(h("h2", { text: "KEV / EPSS priority (confirmed or likely exploited)" }));
+        body.appendChild(h("p", { class: "muted", text:
+          "The most urgent items in the remaining list -- start here." }));
+        body.appendChild(h("div", { html: window.md.render(triageMd) }));
+      }
       if (filteredCsv) {
         body.appendChild(h("h2", { text: "Everything left for human review (" + (triage ? triage.total_cves : "?") + ")" }));
         body.appendChild(h("p", { class: "muted", text:
@@ -329,10 +335,6 @@
       body.appendChild(bucketSummary("Local (git-ancestor check)", kernelReport, base + "triage-kernel.md"));
       body.appendChild(bucketSummary("Upstream (kernel.org CNA data + compiled-sources)", kernelUpstreamReport, base + "triage-kernel-upstream.md"));
       if (ubootReport) body.appendChild(bucketSummary("U-Boot", ubootReport, base + "triage-uboot.md"));
-      if (triageMd) {
-        body.appendChild(h("h2", { text: "KEV / EPSS priority (confirmed or likely exploited)" }));
-        body.appendChild(h("div", { html: window.md.render(triageMd) }));
-      }
     });
   }
 
