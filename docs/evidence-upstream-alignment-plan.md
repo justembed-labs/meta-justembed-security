@@ -1,9 +1,12 @@
 # Evidence upstream-alignment plan
 
 Analysis first, migration second. This document is the actual
-deliverable of this review -- code changes in this pass are limited
-to what section "Small safe changes" below describes; everything else
-is a plan, not yet executed.
+deliverable of this review. The initial pass (P0) was documentation
+and attribution only. A follow-up pass implemented and locally
+verified the one P1 item with clear, evidenced benefit (the kernel
+config-inapplicable wrapper, `scripts/kernel_cve_upstream_triage.py`)
+as an opt-in script, not wired into CI or the default build --
+everything else below remains a plan, not yet executed.
 
 **Upstream versions analyzed**: OpenEmbedded-core `scarthgap`
 (`create-spdx.bbclass`, `create-spdx-2.2.bbclass`,
@@ -25,7 +28,7 @@ locally built in this pass).
 | CVE manifest normalization (JSON -> stable CSV/JSON) | `scripts/parse_cve.py` | No direct upstream equivalent -- reformats `cve-check`'s own output for diffing, doesn't re-match CVEs | None -- lifecycle tooling, not CVE matching | `KEEP` |
 | SBOM component extraction (SPDX -> diffable TSV) | `scripts/spdx_components.py` | No direct upstream equivalent -- reads `create-spdx`'s own output, doesn't re-generate | None -- lifecycle tooling | `KEEP` |
 | CVE/SBOM diffing (run-to-run) | `scripts/diff_cve.py`, `scripts/diff_sbom.py` | No direct upstream equivalent found | None -- lifecycle tooling, this project's real differentiator | `KEEP` |
-| Kernel CVE config-inapplicable filtering | `scripts/kernel_cve_triage.py` (Kconfig-symbol-to-source-file heuristic via hand-parsed Makefiles) | **Yes** -- `improve_kernel_cve_report.py` (OE-core, scarthgap+), uses real compiled-sources data from SPDX + real CNA data from `linux-vulns`, documented 70-80% false-positive reduction | High -- same job, upstream's mechanism is more authoritative (real compiled-file data vs. a heuristic) | `INVESTIGATE` (leaning `REPLACE_WITH_UPSTREAM` -- see Migration plan P1) |
+| Kernel CVE config-inapplicable filtering | `scripts/kernel_cve_triage.py` (Kconfig-symbol-to-source-file heuristic via hand-parsed Makefiles); `scripts/kernel_cve_upstream_triage.py` (new -- wraps upstream, opt-in) | **Yes** -- `improve_kernel_cve_report.py` (OE-core, scarthgap+), uses real compiled-sources data from SPDX + real CNA data from `linux-vulns`, documented 70-80% false-positive reduction | High -- same job, upstream's mechanism is more authoritative (real compiled-file data vs. a heuristic) | `WRAP_UPSTREAM` -- wrapper implemented and tested against real am335x evidence data this pass; not yet wired into `je-cve-diff.bbclass`/CI (see Migration plan P1) |
 | Kernel CVE fixed-version detection (git ancestor check) | `scripts/kernel_cve_triage.py` | Partially -- `improve_kernel_cve_report.py`'s own description mentions "preserving backported-patch status," suggesting overlapping intent; exact mechanism not confirmed in this pass | Uncertain -- needs confirmation | `INVESTIGATE` |
 | Bootloader/non-kernel package CVE triage (same script, generalized) | `scripts/kernel_cve_triage.py` | No upstream equivalent found -- `improve_kernel_cve_report.py` is kernel-specific per its own name and CNA data source | None for this specific use | `KEEP` (scoped to non-kernel packages if the kernel path moves upstream) |
 | KEV/EPSS enrichment | `scripts/kev_epss_enrich.py` | **No** -- confirmed directly: Bootlin's own announcement lists NVD + CVE List as `sbom-cve-check`'s only sources, no KEV/EPSS mention anywhere in its docs or CLI options | None | `KEEP` -- this is real, confirmed JustEmbed-unique value |
@@ -48,7 +51,9 @@ locally built in this pass).
 | `scripts/spdx_components.py` | `KEEP` | Reads upstream SPDX output; doesn't duplicate SBOM generation. |
 | `scripts/diff_cve.py` | `KEEP` | Lifecycle diffing, no upstream equivalent found. |
 | `scripts/diff_sbom.py` | `KEEP` | Lifecycle diffing, no upstream equivalent found. |
-| `scripts/kernel_cve_triage.py` | `INVESTIGATE` | Kernel-specific config-inapplicable logic has a stronger upstream equivalent (`improve_kernel_cve_report.py`); non-kernel-package logic (u-boot, busybox) does not. See Migration plan P1 for the proposed split. |
+| `scripts/kernel_cve_triage.py` | `KEEP` for non-kernel packages (u-boot, busybox); kernel path now has a working `WRAP_UPSTREAM` alternative | Its own git-ancestor/Kconfig check actually catches real stable/vendor-tree backports `improve_kernel_cve_report.py`'s pure CPE-version-range matching can't see -- not strictly inferior, just different evidence. See `scripts/kernel_cve_upstream_triage.py` and Migration plan P1. |
+| `scripts/kernel_cve_upstream_triage.py` | `KEEP` (new this pass) | Wraps `improve_kernel_cve_report.py` (not a reimplementation), re-buckets its output into `kernel_cve_triage.py`'s exact JSON/MD shape -- verified `prioritize_cves.py` reads it unchanged. Opt-in, not wired into CI. See `docs/cve-triage.md`. |
+| `scripts/test_kernel_cve_upstream_triage.py` | `KEEP` (new this pass) | Unit tests for the re-bucketing/normalization logic, 11 cases, all passing. |
 | `scripts/kev_epss_enrich.py` | `KEEP` | Confirmed unique value -- no upstream KEV/EPSS source found. |
 | `scripts/prioritize_cves.py` | `KEEP`, minor rework if P1 lands | Chains kernel triage into KEV/EPSS; if `kernel_cve_triage.py`'s kernel path is replaced, this script's input shape needs to accept `improve_kernel_cve_report.py`'s output format instead (or alongside). |
 | `scripts/layer_inventory.py` | `KEEP` (not deeply reviewed) | Out of this pass's critical path (not CVE-matching); low risk either way. |
@@ -139,13 +144,26 @@ need a compatibility note or a rerun once any such migration lands.
 
 ### P1 (next, needs its own dedicated pass)
 
-- Evaluate replacing `kernel_cve_triage.py`'s config-inapplicable
-  bucket with `improve_kernel_cve_report.py`, keeping
-  `kernel_cve_triage.py` (renamed/scoped) for non-kernel packages
-  (u-boot, busybox) where `improve_kernel_cve_report.py` doesn't
-  apply. Requires: confirming `improve_kernel_cve_report.py`'s exact
-  CLI/output shape against a real build, and updating
-  `prioritize_cves.py`'s input handling.
+- **Kernel config-inapplicable wrapper -- code done, CI wiring not
+  done.** `scripts/kernel_cve_upstream_triage.py` calls
+  `improve_kernel_cve_report.py` for real and re-buckets its output
+  into `kernel_cve_triage.py`'s existing shape; `prioritize_cves.py`
+  confirmed to consume it unmodified. Verified against a real
+  `am335x-smarc-t335x-hmi` evidence run (2026-09-15T045754Z):
+  kernel.org's real CNA data tracks 20,284 kernel CVEs for this kernel
+  version versus 15,001 from NVD alone, and 5,448 Unpatched versus
+  2,418 -- switching data source surfaces real CVEs NVD doesn't track,
+  it does not by itself reduce the count. The actual noise-reduction
+  half (config-inapplicable filtering) needs
+  `SPDX_INCLUDE_COMPILED_SOURCES:pn-linux-yocto = "1"` and a real
+  rebuild to measure -- not done in this pass, no compiled-sources data
+  was available locally. Remaining work: enable that config flag,
+  clone `linux-vulns` in CI (531MB, real network dependency on
+  kernel.org), wire the wrapper into `je-cve-diff.bbclass` (currently a
+  standalone script only), and get the actual filtered
+  config-inapplicable number. See `docs/cve-triage.md` for the full
+  writeup and the real `detail`-field compatibility bug hit along the
+  way.
 - Evaluate migrating `je-sbom.bbclass` from `create-spdx` (currently
   SPDX 2.2) to `create-spdx-3.0` explicitly, updating
   `spdx_components.py` for the new output shape. Prerequisite for
@@ -180,3 +198,10 @@ need a compatibility note or a rerun once any such migration lands.
 5. `sbom-cve-check`'s default CVE data source (a full `cvelistV5`
    clone) is heavy; any future integration needs an explicit,
    documented choice of data source, not the tool's own default.
+6. `improve_kernel_cve_report.py` expects an issue-entry `detail`
+   field that this project's `cve-check` version doesn't emit at all
+   (confirmed: all 15,001 kernel issue entries in a real evidence run
+   lacked it) -- worked around with an input-normalization shim in
+   `kernel_cve_upstream_triage.py`, not by patching upstream's script.
+   A real, if minor, version-skew signal worth flagging to upstream
+   (see `docs/upstream-questions.md`).
