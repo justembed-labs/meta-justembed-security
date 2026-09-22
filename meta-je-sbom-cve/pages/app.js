@@ -120,12 +120,23 @@
       body.innerHTML = "<p class='muted'>Baseline run — no previous run to diff against. See the Full tab.</p>";
       return;
     }
-    Promise.all([getText(base + "diff-cve.md"), getText(base + "diff-sbom.md")]).then(function (r) {
-      body.innerHTML =
-        (r[0] ? window.md.render(r[0]) : "<p class='muted'>No CVE diff.</p>") +
-        "<hr>" +
-        (r[1] ? window.md.render(r[1]) : "<p class='muted'>No SBOM diff.</p>");
-    });
+    body.textContent = "loading…";
+    Promise.all([getText(base + "diff-triage.md"), getText(base + "diff-cve.md"), getText(base + "diff-sbom.md")])
+      .then(function (r) {
+        var diffTriage = r[0], diffCve = r[1], diffSbom = r[2];
+        var html = "";
+        if (diffTriage) {
+          html += "<p class='muted'>What actually changed in the noise-reduced list -- i.e. did the pile a " +
+                  "human needs to look at actually get bigger or smaller.</p>" +
+                  window.md.render(diffTriage) + "<hr>" +
+                  "<h2>Raw CVE-database diff (for reference)</h2>" +
+                  "<p class='muted'>Every unpatched CVE, before any noise reduction -- includes routine " +
+                  "CVE-database churn (new disclosures, version-bump fixes) unrelated to triage.</p>";
+        }
+        html += diffCve ? window.md.render(diffCve) : "<p class='muted'>No CVE diff.</p>";
+        html += "<hr>" + (diffSbom ? window.md.render(diffSbom) : "<p class='muted'>No SBOM diff.</p>");
+        body.innerHTML = html;
+      });
   }
 
   function renderFull(base, body) {
