@@ -27,13 +27,40 @@
 
   function parseHash() {
     var p = (location.hash || "").replace(/^#/, "").split("/").filter(Boolean);
-    return { machine: p[0] || null, run: p[1] || null, tab: p[2] || "diff" };
+    return { machine: p[0] || null, run: p[1] || null, tab: p[2] || "triage" };
   }
 
   function render() {
     var route = parseHash();
     if (!route.machine) return renderHome();
     return renderRun(route);
+  }
+
+  // Minimal inline SVG line chart -- no charting dependency for what's
+  // 5-20 points. Returns an HTML string; caller sets it via innerHTML.
+  function sparkline(points) {
+    var w = 320, hgt = 56, pad = 6;
+    if (points.length < 2) return "";
+    var vals = points.map(function (p) { return p.v; });
+    var max = Math.max.apply(null, vals), min = Math.min.apply(null, vals);
+    var range = max - min || 1;
+    var stepX = w / (points.length - 1);
+    var coords = points.map(function (p, i) {
+      var x = i * stepX;
+      var y = hgt - pad - ((p.v - min) / range) * (hgt - 2 * pad);
+      return x.toFixed(1) + "," + y.toFixed(1);
+    });
+    var circles = points.map(function (p, i) {
+      var xy = coords[i].split(",");
+      return '<circle cx="' + xy[0] + '" cy="' + xy[1] + '" r="3" fill="var(--accent)">' +
+        "<title>" + p.id + ": " + p.v + "</title></circle>";
+    }).join("");
+    var latest = points[points.length - 1];
+    return '<svg viewBox="0 0 ' + w + " " + hgt + '" width="' + w + '" height="' + hgt + '">' +
+      '<polyline points="' + coords.join(" ") + '" fill="none" stroke="var(--accent)" stroke-width="2"/>' +
+      circles + "</svg>" +
+      '<p class="muted">unpatched after noise reduction, oldest → newest -- min ' + min + ", max " + max +
+      ", latest " + latest.v + "</p>";
   }
 
   function renderHome() {
@@ -46,15 +73,29 @@
         var head = h("h2", { text: m.machine + " " });
         head.appendChild(h("span", { class: "muted", text: "(" + m.runs + " runs, latest " + m.latest + ")" }));
         app.appendChild(head);
+        var trend = h("div", {});
+        app.appendChild(trend);
         var ul = h("ul", { class: "timeline" });
         getJSON(STORE + "/" + m.machine + "/index.json").then(function (mi) {
-          (mi.runs || []).forEach(function (r) {
-            var li = h("li", { onclick: function () { location.hash = m.machine + "/" + r.id + "/diff"; } }, [
+          var runs = mi.runs || [];
+          runs.forEach(function (r) {
+            var li = h("li", { onclick: function () { location.hash = m.machine + "/" + r.id + "/triage"; } }, [
               h("span", { class: "id", text: r.id }),
               h("div", { class: "meta", text: (r.generated || "") + " · " + (r.commit || "").slice(0, 8) +
                          (r.previous && r.previous !== "null" ? " · vs " + r.previous : " · baseline") }),
             ]);
             ul.appendChild(li);
+          });
+          // Best-effort: older runs (before the upstream triage wrapper
+          // landed) may not have a triage.json at all -- points with no
+          // data are silently dropped rather than shown as a gap/zero.
+          Promise.all(runs.map(function (r) {
+            return getJSON(STORE + "/" + m.machine + "/" + r.id + "/triage.json")
+              .then(function (t) { return { id: r.id, generated: r.generated, v: t.total_cves }; })
+              .catch(function () { return null; });
+          })).then(function (points) {
+            points = points.filter(Boolean).sort(function (a, b) { return (a.generated || "").localeCompare(b.generated || ""); });
+            if (points.length >= 2) trend.innerHTML = sparkline(points);
           });
         });
         app.appendChild(ul);
@@ -178,21 +219,45 @@
     ["needs_human_review", "needs human review"],
   ];
 
+  // Entry shape varies by bucket/source (kernel_cve_triage.py and
+  // kernel_cve_upstream_triage.py each use their own field names) --
+  // pick whichever of these is present as the human-readable "why".
+  function bucketEntryDetail(entry) {
+    return entry.reason || entry.subject || entry.file ||
+      (entry.config_symbol ? "CONFIG_" + entry.config_symbol : "") ||
+      entry.commit || entry.detail || "";
+  }
+
   // triage-kernel*.json (thousands of per-CVE entries, 100s of KB) are
-  // evidence for an auditor, not a summary for this page -- render
-  // bucket counts only, link the full report instead of inlining it.
+  // evidence for an auditor, not a summary for this page -- cards show
+  // counts only; clicking one expands a filterable CVE+reason table
+  // built from the JSON already fetched (no extra request), instead of
+  // sending the reader to the raw report to find out what's in it.
   function bucketSummary(title, report, mdPath) {
     var wrap = h("div", {});
     wrap.appendChild(h("h3", { text: title }));
     if (!report) { wrap.appendChild(h("p", { class: "muted", text: "Not run for this package." })); return wrap; }
     var cards = h("div", { class: "cards" });
+    var expanded = h("div", {});
     TRIAGE_BUCKETS.forEach(function (b) {
-      var n = (report[b[0]] || []).length;
-      cards.appendChild(h("div", { class: "card" + (b[0] === "needs_human_review" ? " high" : "") }, [
-        h("div", { class: "n", text: String(n) }), h("div", { text: b[1] }),
-      ]));
+      var entries = report[b[0]] || [];
+      var card = h("div", { class: "card" + (b[0] === "needs_human_review" ? " high" : "") }, [
+        h("div", { class: "n", text: String(entries.length) }), h("div", { text: b[1] }),
+      ]);
+      if (entries.length) {
+        card.style.cursor = "pointer";
+        card.title = "Click to show the CVE list";
+        card.onclick = function () {
+          expanded.innerHTML = "";
+          expanded.appendChild(h("h4", { text: b[1] + " (" + entries.length + ")" }));
+          var rows = entries.map(function (e) { return [e.cve, bucketEntryDetail(e)]; });
+          expanded.appendChild(tableFrom(["cve", "why"], rows, { filterable: true }));
+        };
+      }
+      cards.appendChild(card);
     });
     wrap.appendChild(cards);
+    wrap.appendChild(expanded);
     wrap.appendChild(h("p", { class: "muted" }, [
       h("a", { href: mdPath, text: "full per-CVE report" }),
     ]));
@@ -211,7 +276,7 @@
       }
       return r;
     });
-    return tableFrom(head, rows);
+    return tableFrom(head, rows, { filterable: true });
   }
 
   function renderTriage(base, body) {
@@ -252,6 +317,12 @@
         ]));
         body.appendChild(cards);
       }
+      if (triageMd) {
+        body.appendChild(h("h2", { text: "KEV / EPSS priority (confirmed or likely exploited)" }));
+        body.appendChild(h("p", { class: "muted", text:
+          "The most urgent items in the remaining list -- start here." }));
+        body.appendChild(h("div", { html: window.md.render(triageMd) }));
+      }
       if (filteredCsv) {
         body.appendChild(h("h2", { text: "Everything left for human review (" + (triage ? triage.total_cves : "?") + ")" }));
         body.appendChild(h("p", { class: "muted", text:
@@ -264,10 +335,6 @@
       body.appendChild(bucketSummary("Local (git-ancestor check)", kernelReport, base + "triage-kernel.md"));
       body.appendChild(bucketSummary("Upstream (kernel.org CNA data + compiled-sources)", kernelUpstreamReport, base + "triage-kernel-upstream.md"));
       if (ubootReport) body.appendChild(bucketSummary("U-Boot", ubootReport, base + "triage-uboot.md"));
-      if (triageMd) {
-        body.appendChild(h("h2", { text: "KEV / EPSS priority (confirmed or likely exploited)" }));
-        body.appendChild(h("div", { html: window.md.render(triageMd) }));
-      }
     });
   }
 
@@ -305,19 +372,53 @@
     if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
     return rows;
   }
-  function tableFrom(head, rows) {
+  // Risk order, not alphabetical -- plain string sort puts "critical"
+  // before "high" before "low" before "medium", which reads as sorted
+  // but isn't meaningful. Only kicks in for a column literally named
+  // "severity"; every other column keeps the generic numeric/string sort.
+  var SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1, unknown: 0 };
+
+  // opts.filterable adds a live text filter box above the table
+  // (substring match, case-insensitive, across all columns) -- for
+  // tables with more rows than fit on screen (the remaining-CVE list,
+  // per-bucket CVE lists). Omit opts for the old sort-only behavior.
+  function tableFrom(head, rows, opts) {
+    opts = opts || {};
     var sortState = { col: -1, dir: 1 };
+    var filterText = "";
+    var severityCol = head.indexOf("severity");
     var table = h("table");
-    function draw() {
-      var body = rows.slice();
+    var countEl = null;
+
+    function visibleRows() {
+      var out = rows;
+      if (filterText) {
+        var needle = filterText.toLowerCase();
+        out = out.filter(function (row) {
+          return row.some(function (cell) { return (cell || "").toLowerCase().indexOf(needle) >= 0; });
+        });
+      }
+      out = out.slice();
       if (sortState.col >= 0) {
-        body.sort(function (a, b) {
-          var x = a[sortState.col] || "", y = b[sortState.col] || "";
+        var col = sortState.col;
+        out.sort(function (a, b) {
+          var x = a[col] || "", y = b[col] || "";
+          if (col === severityCol) {
+            var rx = SEVERITY_RANK.hasOwnProperty(x.toLowerCase()) ? SEVERITY_RANK[x.toLowerCase()] : -1;
+            var ry = SEVERITY_RANK.hasOwnProperty(y.toLowerCase()) ? SEVERITY_RANK[y.toLowerCase()] : -1;
+            return (rx - ry) * sortState.dir;
+          }
           var nx = parseFloat(x), ny = parseFloat(y);
           if (!isNaN(nx) && !isNaN(ny)) return (nx - ny) * sortState.dir;
           return x.localeCompare(y) * sortState.dir;
         });
       }
+      return out;
+    }
+
+    function draw() {
+      var body = visibleRows();
+      if (countEl) countEl.textContent = body.length + " of " + rows.length + " rows";
       table.innerHTML = "";
       var tr = h("tr");
       head.forEach(function (hcol, ci) {
@@ -333,8 +434,17 @@
       });
       table.appendChild(tb);
     }
+
+    if (!opts.filterable) { draw(); return table; }
+
+    var wrap = h("div", {});
+    var input = h("input", { type: "text", placeholder: "Filter…" });
+    input.oninput = function () { filterText = input.value; draw(); };
+    countEl = h("span", { class: "muted" });
+    wrap.appendChild(h("div", { class: "row", style: "margin-bottom:.5rem" }, [input, countEl]));
+    wrap.appendChild(table);
     draw();
-    return table;
+    return wrap;
   }
 
   window.addEventListener("hashchange", render);
