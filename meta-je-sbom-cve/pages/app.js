@@ -350,9 +350,10 @@
       getJSON(base + "triage-kernel-upstream.json").catch(function () { return null; }),
       getJSON(base + "triage-uboot.json").catch(function () { return null; }),
       getText(base + "triage.filtered.csv"),
+      getJSON(base + "triage-kernel-backport.json").catch(function () { return null; }),
     ]).then(function (r) {
       var sum = r[0], triage = r[1], triageMd = r[2], kernelReport = r[3], kernelUpstreamReport = r[4],
-          ubootReport = r[5], filteredCsv = r[6];
+          ubootReport = r[5], filteredCsv = r[6], backportReport = r[7];
       body.innerHTML = "";
       if (!triage && !kernelReport && !kernelUpstreamReport) {
         body.innerHTML = "<p class='muted'>No triage/noise-reduction data for this run.</p>";
@@ -395,6 +396,12 @@
         "Not the combined result above -- each source's own bucket counts if it ran alone. The two sources catch different, overlapping cases, so neither one's \"needs human review\" count matches the real combined total." }));
       body.appendChild(bucketSummary("Local (git-ancestor check)", kernelReport, base + "triage-kernel.md"));
       body.appendChild(bucketSummary("Upstream (kernel.org CNA data + compiled-sources)", kernelUpstreamReport, base + "triage-kernel-upstream.md"));
+      if (backportReport) {
+        body.appendChild(h("h3", { text: "Real source verification (git apply --check)" }));
+        body.appendChild(h("p", { class: "muted", text:
+          "Not a heuristic -- for CVEs neither source above could resolve, checks the actual source against the real fix commit. \"needs human review\" here splits into confirmed-vulnerable and genuinely-unknown; click the card to see which is which." }));
+        body.appendChild(bucketSummary("Backport check", backportReport, base + "triage-kernel-backport.md"));
+      }
       if (ubootReport) body.appendChild(bucketSummary("U-Boot", ubootReport, base + "triage-uboot.md"));
     });
   }
