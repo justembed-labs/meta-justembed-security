@@ -264,28 +264,68 @@
     return wrap;
   }
 
+  // CVSS3/3.1 vector strings only -- CVSS2's AV letters mean the same
+  // thing (N/A/L) but a v2 string ("AV:N/AC:L/Au:N/...") also matches
+  // this regex harmlessly, so no separate v2 path is needed.
+  function attackVector(vector) {
+    var m = /AV:([NLAP])/.exec(vector || "");
+    var names = { N: "network", A: "adjacent", L: "local", P: "physical" };
+    return m ? names[m[1]] : "unknown";
+  }
+
   function remainingTable(csvText) {
     var records = parseCsvRecords(csvText.replace(/﻿/, ""));
     if (!records.length) return h("p", { class: "muted", text: "No rows." });
     var head = records[0];
     var summaryCol = head.indexOf("summary");
     var severityCol = head.indexOf("severity");
+    var vectorCol = head.indexOf("vector");
     var dataRows = records.slice(1).filter(function (r) { return r.length === head.length; });
 
+    // Derived "attack vector" column, inserted right after severity --
+    // real signal for prioritization (network-reachable vs. needs local
+    // access already) that the raw CVSS vector string buries.
+    if (vectorCol >= 0) {
+      head = head.slice();
+      head.splice(severityCol >= 0 ? severityCol + 1 : head.length, 0, "attack vector");
+      dataRows = dataRows.map(function (r) {
+        r = r.slice();
+        r.splice(severityCol >= 0 ? severityCol + 1 : r.length, 0, attackVector(r[vectorCol]));
+        return r;
+      });
+    }
+    var avCol = head.indexOf("attack vector");
+
     var wrap = h("div", {});
-    if (severityCol >= 0) {
-      var counts = {};
-      dataRows.forEach(function (r) {
-        var s = (r[severityCol] || "unknown").toLowerCase();
-        counts[s] = (counts[s] || 0) + 1;
-      });
+    if (severityCol >= 0 || avCol >= 0) {
       var cards = h("div", { class: "cards" });
-      [["critical", "crit"], ["high", "high"], ["medium", "med"], ["low", "low"], ["unknown", ""]].forEach(function (s) {
-        if (!counts[s[0]]) return;
-        cards.appendChild(h("div", { class: "card " + s[1] }, [
-          h("div", { class: "n", text: String(counts[s[0]]) }), h("div", { text: s[0] }),
-        ]));
-      });
+      if (severityCol >= 0) {
+        var sevCounts = {};
+        dataRows.forEach(function (r) {
+          var s = (r[severityCol] || "unknown").toLowerCase();
+          sevCounts[s] = (sevCounts[s] || 0) + 1;
+        });
+        [["critical", "crit"], ["high", "high"], ["medium", "med"], ["low", "low"], ["unknown", ""]].forEach(function (s) {
+          if (!sevCounts[s[0]]) return;
+          cards.appendChild(h("div", { class: "card " + s[1] }, [
+            h("div", { class: "n", text: String(sevCounts[s[0]]) }), h("div", { text: s[0] }),
+          ]));
+        });
+      }
+      if (avCol >= 0) {
+        var avCounts = {};
+        dataRows.forEach(function (r) {
+          var v = r[avCol] || "unknown";
+          avCounts[v] = (avCounts[v] || 0) + 1;
+        });
+        // network first -- the one that matters most for prioritization.
+        [["network", "crit"], ["adjacent", "high"], ["local", ""], ["physical", ""], ["unknown", ""]].forEach(function (s) {
+          if (!avCounts[s[0]]) return;
+          cards.appendChild(h("div", { class: "card " + s[1] }, [
+            h("div", { class: "n", text: String(avCounts[s[0]]) }), h("div", { text: s[0] + " reachable" }),
+          ]));
+        });
+      }
       wrap.appendChild(cards);
     }
 
@@ -310,9 +350,10 @@
       getJSON(base + "triage-kernel-upstream.json").catch(function () { return null; }),
       getJSON(base + "triage-uboot.json").catch(function () { return null; }),
       getText(base + "triage.filtered.csv"),
+      getJSON(base + "triage-kernel-backport.json").catch(function () { return null; }),
     ]).then(function (r) {
       var sum = r[0], triage = r[1], triageMd = r[2], kernelReport = r[3], kernelUpstreamReport = r[4],
-          ubootReport = r[5], filteredCsv = r[6];
+          ubootReport = r[5], filteredCsv = r[6], backportReport = r[7];
       body.innerHTML = "";
       if (!triage && !kernelReport && !kernelUpstreamReport) {
         body.innerHTML = "<p class='muted'>No triage/noise-reduction data for this run.</p>";
@@ -355,6 +396,12 @@
         "Not the combined result above -- each source's own bucket counts if it ran alone. The two sources catch different, overlapping cases, so neither one's \"needs human review\" count matches the real combined total." }));
       body.appendChild(bucketSummary("Local (git-ancestor check)", kernelReport, base + "triage-kernel.md"));
       body.appendChild(bucketSummary("Upstream (kernel.org CNA data + compiled-sources)", kernelUpstreamReport, base + "triage-kernel-upstream.md"));
+      if (backportReport) {
+        body.appendChild(h("h3", { text: "Real source verification (git apply --check)" }));
+        body.appendChild(h("p", { class: "muted", text:
+          "Not a heuristic -- for CVEs neither source above could resolve, checks the actual source against the real fix commit. \"needs human review\" here splits into confirmed-vulnerable and genuinely-unknown; click the card to see which is which." }));
+        body.appendChild(bucketSummary("Backport check", backportReport, base + "triage-kernel-backport.md"));
+      }
       if (ubootReport) body.appendChild(bucketSummary("U-Boot", ubootReport, base + "triage-uboot.md"));
     });
   }
