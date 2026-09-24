@@ -17,8 +17,8 @@ tested as if it were present.
 - Relevant layers: `meta-je-detection` (`je-rule-bundle`,
   `je-detection-agent`), a local `rules-update` swupdate recipe built
   for this evidence pass (same `sw-description`/`apply-rules.sh`
-  structure as the real AM335x hardware BSP's own rule-update recipe,
-  machine name changed to `qemuarm64`)
+  structure as a real hardware BSP's own rule-update recipe, machine
+  name changed to `qemuarm64`)
 
 ## Setup
 
@@ -31,8 +31,8 @@ a signed `.swu` (RSA-2048 dev keypair, same one `je-secureboot` and
   test redelivers an unchanged rule; it demonstrates the *update
   mechanism and postinst pipeline*, not a content diff -- see
   Limitations)
-- `apply-rules.sh` -- unchanged, copied verbatim from the real AM335x
-  hardware BSP's own rule-update recipe (`augenrules --load`, then
+- `apply-rules.sh` -- unchanged, copied verbatim from a real hardware
+  BSP's own rule-update recipe (`augenrules --load`, then
   `systemctl restart je-detection-agent` if `/run/systemd/system`
   exists, else a SysV fallback)
 

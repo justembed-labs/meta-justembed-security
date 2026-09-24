@@ -2,10 +2,11 @@
 """Triage kernel CVEs flagged "unpatched" by cve-check (yocto-bsp#22).
 
 Version-range matching can't see stable/vendor-tree backports already
-merged, or catch a CPE mismatch onto an unrelated CVE entirely -- on
-the AM335x scan, 2417 of 2449 "unpatched" CVEs are the kernel. This
-automates what's tractable and flags the rest for human review; it
-never edits a recipe itself.
+merged, or catch a CPE mismatch onto an unrelated CVE entirely -- on a
+typical embedded target, the kernel alone can account for the
+overwhelming majority of "unpatched" hits. This automates what's
+tractable and flags the rest for human review; it never edits a
+recipe itself.
 
 Not kernel-only despite the name -- PACKAGE and the CPE-mismatch
 keyword list are both parameters (see DEFAULT_KEYWORDS), same script
