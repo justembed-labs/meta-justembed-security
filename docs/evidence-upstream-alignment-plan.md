@@ -155,7 +155,7 @@ need a compatibility note or a rerun once any such migration lands.
   layout confirmed real), and calls the wrapper -- all behind
   `JE_EVIDENCE_ENABLE_UPSTREAM_KERNEL_TRIAGE ??= "0"`.
 
-  Verified against a real `am335x-smarc-t335x-hmi` evidence run
+  Verified against a real internal TI AM335x-class evidence run
   (2026-09-15T045754Z): kernel.org's real CNA data tracks 20,284
   kernel CVEs for this kernel version versus 15,001 from NVD alone,
   and 5,448 Unpatched versus 2,418 -- switching data source surfaces
