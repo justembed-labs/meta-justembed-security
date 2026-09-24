@@ -13,7 +13,7 @@ elsewhere in this project, never an aspiration.
 | Platform | SoC / Board | Yocto release | Branch / BSP | Build | Hygiene | Evidence | Detect | Update | Boot verification | Resource tests | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | QEMU | `qemuarm64` | scarthgap (5.0.20) | `meta-je-example-bsp`, `main` | Demonstrated | Demonstrated | Demonstrated | Demonstrated | Demonstrated | FIT verified in QEMU (not a hardware root of trust -- see `docs/update-boot.md`) | [Measured](evidence/detection-resource-measurements.md) | Reference |
-| Embedian | TI AM335x | TBD | TBD | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| TI | AM335x SOM | TBD | TBD | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
 | NXP | i.MX6 SOM | TBD | TBD | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
 | NXP | i.MX8 | TBD | TBD | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
 | BeagleBone | AM335x | TBD | TBD | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
