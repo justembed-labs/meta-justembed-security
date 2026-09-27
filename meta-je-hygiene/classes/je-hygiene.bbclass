@@ -20,6 +20,11 @@ JE_HYGIENE_ALLOWED_SERVICES ?= ""
 # per image.
 JE_HYGIENE_REQUIRE_KERNEL_HARDENING_FLAGS ?= "0"
 JE_HYGIENE_KERNEL_CONFIG ?= "${STAGING_KERNEL_BUILDDIR}/.config"
+# Off by default -- only relevant if swupdate's webserver mode is even
+# in use, and existing images may have made this tradeoff already
+# (e.g. a QEMU-only demo). Set to "1" once the conf.d file adds
+# -s/--ssl or --global-auth-file.
+JE_HYGIENE_REQUIRE_SWUPDATE_WEBSERVER_PROTECTED ?= "0"
 JE_HYGIENE_REPORT_DIR ?= "${DEPLOY_DIR_IMAGE}"
 
 ROOTFS_POSTPROCESS_COMMAND += "je_hygiene_qa_check; "
@@ -33,5 +38,6 @@ je_hygiene_qa_check() {
 		$( [ "${JE_HYGIENE_REQUIRE_KEY_ONLY_SSH}" = "1" ] && echo --require-key-only-ssh ) \
 		$( [ "${JE_HYGIENE_REQUIRE_MINIMAL_SERVICE_SURFACE}" = "1" ] && echo --require-minimal-service-surface ) \
 		$( [ -f "${JE_HYGIENE_KERNEL_CONFIG}" ] && echo --kernel-config "${JE_HYGIENE_KERNEL_CONFIG}" ) \
-		$( [ "${JE_HYGIENE_REQUIRE_KERNEL_HARDENING_FLAGS}" = "1" ] && echo --require-kernel-hardening-flags )
+		$( [ "${JE_HYGIENE_REQUIRE_KERNEL_HARDENING_FLAGS}" = "1" ] && echo --require-kernel-hardening-flags ) \
+		$( [ "${JE_HYGIENE_REQUIRE_SWUPDATE_WEBSERVER_PROTECTED}" = "1" ] && echo --require-swupdate-webserver-protected )
 }

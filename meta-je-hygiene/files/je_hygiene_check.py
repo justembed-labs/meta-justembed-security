@@ -135,6 +135,62 @@ def check_minimal_service_surface(rootfs, allowed):
     return {"status": "pass", "detail": f"{len(enabled)} enabled unit(s), all allowlisted"}
 
 
+def _swupdate_conf_d_files(rootfs):
+    """swupdate.sh sources etc/swupdate/conf.d/<name> in preference to
+    the matching usr/lib/swupdate/conf.d/<name>, for each name present
+    in either -- same precedence, replicated here for the check."""
+    by_name = {}
+    for base in ("usr/lib/swupdate/conf.d", "usr/lib64/swupdate/conf.d"):
+        d = rootfs / base
+        if d.is_dir():
+            for f in d.iterdir():
+                if f.is_file():
+                    by_name.setdefault(f.name, f)
+    etc_d = rootfs / "etc" / "swupdate" / "conf.d"
+    if etc_d.is_dir():
+        for f in etc_d.iterdir():
+            if f.is_file():
+                by_name[f.name] = f  # etc/ wins over usr/lib/
+    return [by_name[name] for name in sorted(by_name)]
+
+
+def check_swupdate_webserver_protected(rootfs):
+    """swupdate's own webserver mode (SWUPDATE_WEBSERVER_ARGS, see
+    swupdate.sh) accepts a pushed update over HTTP with no channel
+    protection unless the conf.d file also enables SSL (-s/--ssl) or
+    HTTP auth (--global-auth-file). Signing (-k) alone doesn't cover
+    this: a captured, still-validly-signed old bundle can still be
+    replayed over an unprotected channel."""
+    files = _swupdate_conf_d_files(rootfs)
+    if not files:
+        return {"status": "pass", "detail": "no swupdate conf.d in rootfs (swupdate not configured)"}
+
+    webserver_args = ""
+    for f in files:
+        text = f.read_text(errors="replace")
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("SWUPDATE_WEBSERVER_ARGS="):
+                # Later conf.d files (sorted) override earlier ones,
+                # same as swupdate.sh re-sourcing each in turn.
+                webserver_args = line.split("=", 1)[1].strip().strip('"\'')
+
+    if not webserver_args:
+        return {"status": "pass", "detail": "SWUPDATE_WEBSERVER_ARGS unset/empty, webserver mode not active"}
+
+    protected = ("--ssl" in webserver_args or " -s " in f" {webserver_args} "
+                 or "--global-auth-file" in webserver_args)
+    if protected:
+        return {"status": "pass", "detail": f"webserver active with SSL or auth: {webserver_args!r}"}
+    return {
+        "status": "fail",
+        "detail": (
+            f"webserver active with no --ssl/-s or --global-auth-file: {webserver_args!r} "
+            "-- update-push channel is plaintext, unauthenticated"
+        ),
+    }
+
+
 def check_read_only_rootfs(rootfs):
     """Report-only, permanently -- feasibility is per-target (storage
     wear, whether the app writes to disk at runtime), never a
@@ -212,6 +268,7 @@ def main():
     )
     ap.add_argument("--require-kernel-hardening-flags", action="store_true")
     ap.add_argument("--kernel-config", type=Path)
+    ap.add_argument("--require-swupdate-webserver-protected", action="store_true")
     args = ap.parse_args()
 
     allowed_services = {
@@ -238,6 +295,10 @@ def main():
         "kernel_hardening_flags": {
             **check_kernel_hardening_flags(args.kernel_config),
             "enforced": args.require_kernel_hardening_flags,
+        },
+        "swupdate_webserver_protected": {
+            **check_swupdate_webserver_protected(args.rootfs),
+            "enforced": args.require_swupdate_webserver_protected,
         },
     }
 
