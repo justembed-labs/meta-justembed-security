@@ -39,7 +39,11 @@ to make a failing build pass silently.
 
 `files/je_hygiene_check.py` is a standalone script (rootfs dir in,
 JSON report + exit code out) -- test it directly against a synthetic
-rootfs tree without a full Yocto build:
+rootfs tree without a full Yocto build. The checks themselves live in
+`files/checks/`, one module per topic (`credentials.py`,
+`service_surface.py`, `filesystem.py`, `kernel.py`); the top-level
+script is just CLI/orchestration -- add a new check to whichever
+module it's related to, or a new module if it isn't:
 
 ```
 python3 files/je_hygiene_check.py --rootfs /path/to/test/rootfs \
