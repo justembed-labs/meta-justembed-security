@@ -104,9 +104,9 @@ output from the real test runs.
   -- see `docs/update-boot.md`.
 - `qemu_arm64_defconfig`'s U-Boot has no ext4 write support; the
   `boot`/`state` partitions in this example are `vfat` for that reason
-  (the mirror image of the real AM335x hardware's own U-Boot, which
-  has ext4 write but no FAT write command -- pick whichever write path
-  is real for the target).
+  (the mirror image of a real hardware target's own U-Boot, which can
+  just as easily have ext4 write but no FAT write command -- pick
+  whichever write path is real for the target).
 - The dev signing key shipped in `meta-je-example-bsp` is a throwaway
   keypair for reproducibility, explicitly not for production use.
 - The "health decision" that leads to committing this update is

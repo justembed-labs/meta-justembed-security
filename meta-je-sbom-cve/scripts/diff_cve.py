@@ -2,10 +2,16 @@
 """Diff two parsed cve-check runs.
 
 Usage:
-    diff_cve.py CURRENT_DIR PREVIOUS_DIR OUT_PREFIX
+    diff_cve.py CURRENT_DIR PREVIOUS_DIR OUT_PREFIX [--filename NAME] [--title TEXT]
 
-CURRENT_DIR / PREVIOUS_DIR are parse_cve.py output dirs. Writes
-OUT_PREFIX.json and OUT_PREFIX.md:
+CURRENT_DIR / PREVIOUS_DIR are parse_cve.py output dirs (containing
+unpatched.csv), or any two directories containing a same-shaped CSV
+under --filename (e.g. prioritize_cves.py's triage.filtered.csv, to
+diff the noise-reduced list instead of the raw one -- same columns,
+different file). cve_summary.json (for the >50%-drop scan-broken
+check) is only ever read from the default unpatched.csv location;
+harmless if absent for a non-default --filename. Writes OUT_PREFIX.json
+and OUT_PREFIX.md:
 
   new             unpatched now, not unpatched (or absent) before
   resolved        unpatched before, patched or gone now
@@ -28,8 +34,8 @@ from pathlib import Path
 MD_ROW_CAP = 50
 
 
-def load_unpatched(d):
-    path = Path(d) / "unpatched.csv"
+def load_unpatched(d, filename="unpatched.csv"):
+    path = Path(d) / filename
     out = {}
     if not path.is_file():
         return out
@@ -83,12 +89,23 @@ def md_table(rows):
 
 
 def main():
-    if len(sys.argv) != 4:
+    args = sys.argv[1:]
+    filename = "unpatched.csv"
+    title = "CVE diff"
+    if "--filename" in args:
+        i = args.index("--filename")
+        filename = args[i + 1]
+        args = args[:i] + args[i + 2:]
+    if "--title" in args:
+        i = args.index("--title")
+        title = args[i + 1]
+        args = args[:i] + args[i + 2:]
+    if len(args) != 3:
         sys.exit(__doc__)
-    cur_dir, prev_dir, out_prefix = sys.argv[1:4]
+    cur_dir, prev_dir, out_prefix = args
 
-    cur = load_unpatched(cur_dir)
-    prev = load_unpatched(prev_dir)
+    cur = load_unpatched(cur_dir, filename)
+    prev = load_unpatched(prev_dir, filename)
 
     new = [v for k, v in cur.items() if k not in prev]
     resolved = [v for k, v in prev.items() if k not in cur]
@@ -117,7 +134,7 @@ def main():
     }
     Path(out_prefix + ".json").write_text(json.dumps(result, indent=2) + "\n")
 
-    md = ["# CVE diff\n",
+    md = [f"# {title}\n",
           f"- new unpatched: **{len(new)}**",
           f"- resolved: **{len(resolved)}**",
           f"- still unpatched: **{len(still)}**",

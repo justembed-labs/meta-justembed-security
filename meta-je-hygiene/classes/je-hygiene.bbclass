@@ -14,9 +14,10 @@ JE_HYGIENE_REQUIRE_KEY_ONLY_SSH ?= "1"
 # Set JE_HYGIENE_ALLOWED_SERVICES and this to "1" together, per image.
 JE_HYGIENE_REQUIRE_MINIMAL_SERVICE_SURFACE ?= "0"
 JE_HYGIENE_ALLOWED_SERVICES ?= ""
-# Off by default -- real target testing (AM335x, 2026-09-16) found 5/11
-# baseline flags already set, 6 not; enabling this hard-fails until
-# those are reviewed and either turned on or accepted per image.
+# Off by default -- real target testing (2026-09-16) found roughly
+# half the baseline flags already set, the rest not; enabling this
+# hard-fails until those are reviewed and either turned on or accepted
+# per image.
 JE_HYGIENE_REQUIRE_KERNEL_HARDENING_FLAGS ?= "0"
 JE_HYGIENE_KERNEL_CONFIG ?= "${STAGING_KERNEL_BUILDDIR}/.config"
 JE_HYGIENE_REPORT_DIR ?= "${DEPLOY_DIR_IMAGE}"

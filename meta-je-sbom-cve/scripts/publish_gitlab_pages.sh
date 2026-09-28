@@ -29,6 +29,15 @@ python3 "$HERE/reindex.py" "$STORE"
 
 mkdir -p "$OUT"
 cp -r "$HERE/../pages/." "$OUT/"
+
+# Cache-bust app.js/md.js on every publish -- index.html's own <script>
+# tags have no version, so a browser (or CDN edge) that already cached
+# app.js from a previous deploy can silently keep serving it after a
+# viewer fix ships. A build-time timestamp guarantees each publish is
+# a new URL.
+CACHEBUST="$(date -u +%s)"
+sed -i.bak "s/\(app\.js\|md\.js\)\"/\1?v=$CACHEBUST\"/g" "$OUT/index.html" && rm -f "$OUT/index.html.bak"
+
 mkdir -p "$OUT/store"
 
 # Both resolved to absolute paths before the `cd "$STORE"` below -- a

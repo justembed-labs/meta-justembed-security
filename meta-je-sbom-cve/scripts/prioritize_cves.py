@@ -5,9 +5,9 @@ list, not the raw cve-check firehose.
 
 Without this: kev_epss_enrich.py cross-references CISA KEV/EPSS against
 *every* "unpatched" CVE, including ones kernel_cve_triage.py already
-knows are noise. On the real AM335x scan, this is exactly how
-CVE-2023-3079 ended up reported as a confirmed-actively-exploited
-(KEV) hit -- it's a Chrome/V8 CVE mismatched onto the linux_kernel CPE
+knows are noise. In a real scan, this is exactly how CVE-2023-3079
+ended up reported as a confirmed-actively-exploited (KEV) hit -- it's
+a Chrome/V8 CVE mismatched onto the linux_kernel CPE
 (kernel_cve_triage.py's own cpe_mismatch_candidates bucket), nothing to
 do with this kernel at all. Chaining the two catches that before KEV/
 EPSS ever sees it.
