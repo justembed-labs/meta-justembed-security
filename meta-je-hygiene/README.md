@@ -29,6 +29,7 @@ Every check (enforced or not) writes a result to
 | Minimal service surface | opt-in (`JE_HYGIENE_REQUIRE_MINIMAL_SERVICE_SURFACE`, default off) | Every systemd unit enabled in the rootfs (a symlink under `etc/systemd/system/*.wants/`) must be listed in `JE_HYGIENE_ALLOWED_SERVICES`. Off by default -- set both together, per image. Passes trivially on a non-systemd rootfs. |
 | Read-only root where feasible | report-only by design, permanently | Reads `etc/fstab`'s root (`/`) entry and reports whether it's mounted `ro`. Feasibility is per-target (storage wear, whether the app writes at runtime) -- this never hard-fails, by design. |
 | Kernel hardening flags | opt-in (`JE_HYGIENE_REQUIRE_KERNEL_HARDENING_FLAGS`, default off) | Checks Kconfig symbols (`CONFIG_STACKPROTECTOR{,_STRONG}`, `CONFIG_STRICT_{KERNEL,MODULE}_RWX`, `CONFIG_VMAP_STACK`, `CONFIG_HARDENED_USERCOPY`, `CONFIG_FORTIFY_SOURCE`, `CONFIG_SLAB_FREELIST_HARDENED`, `CONFIG_BUG_ON_DATA_CORRUPTION`, `CONFIG_INIT_ON_{ALLOC,FREE}_DEFAULT_ON`) against `JE_HYGIENE_KERNEL_CONFIG` (defaults to `STAGING_KERNEL_BUILDDIR/.config`, the real built kernel's own config). The checklist is architecture-aware: a symbol only appears if it's a real option for the kernel tree being checked (an ASLR-style symbol that's only meaningful on some architectures, for example, is left out rather than reported as a false failure). Off by default -- a fresh target is unlikely to have every flag set, and enabling this hard-fails until the gaps are reviewed and either turned on (per-`MACHINE` kernel config fragment) or explicitly accepted. |
+| swupdate webserver protected | opt-in (`JE_HYGIENE_REQUIRE_SWUPDATE_WEBSERVER_PROTECTED`, default off) | If swupdate's own webserver mode is active (`SWUPDATE_WEBSERVER_ARGS` non-empty in any `etc/swupdate/conf.d`/`usr/lib/swupdate/conf.d` file, same precedence as `swupdate.sh`), requires `-s`/`--ssl` or `--global-auth-file` in that same string. Signing (`-k`) proves who built a bundle; it doesn't stop a captured, still-validly-signed *old* bundle being replayed over an unprotected push channel -- this check is about the channel, `je-boot-update`'s `je-downgrade-guard` is about the replay. Off by default -- an existing image (e.g. a QEMU-only demo) may have made this tradeoff deliberately; turning it on forces that to be either fixed or explicitly kept off. |
 
 Set any `JE_HYGIENE_REQUIRE_*` to `"0"` to turn an enforced check into
 report-only for a specific image -- do this deliberately, not as a way
@@ -38,11 +39,16 @@ to make a failing build pass silently.
 
 `files/je_hygiene_check.py` is a standalone script (rootfs dir in,
 JSON report + exit code out) -- test it directly against a synthetic
-rootfs tree without a full Yocto build:
+rootfs tree without a full Yocto build. The checks themselves live in
+`files/checks/`, one module per topic (`credentials.py`,
+`service_surface.py`, `filesystem.py`, `kernel.py`); the top-level
+script is just CLI/orchestration -- add a new check to whichever
+module it's related to, or a new module if it isn't:
 
 ```
 python3 files/je_hygiene_check.py --rootfs /path/to/test/rootfs \
-    --report /tmp/report.json --require-no-default-creds --require-key-only-ssh
+    --report /tmp/report.json --require-no-default-creds --require-key-only-ssh \
+    --require-swupdate-webserver-protected
 ```
 
 Verified end-to-end through a real `do_rootfs` build on physical

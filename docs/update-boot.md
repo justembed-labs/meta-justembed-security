@@ -52,6 +52,15 @@ multi-user boot," not an application-level health check. That's an
 honest v1, not a hidden gap -- documented here so it isn't assumed to
 be more than it is.
 
+**Signature verification does not imply replay/rollback protection.**
+A captured, still-validly-signed *old* `.swu` passes the same RSA
+signature + SHA-256 check as a current one -- these are two different
+trust questions. `je-downgrade-guard` (`je-swupdate-fota`) closes the
+replay/rollback side via swupdate's own `-N`/`-R` flags against
+`/etc/sw-versions`; `meta-je-hygiene`'s `swupdate_webserver_protected`
+check covers the separate question of whether the push channel itself
+(swupdate's webserver mode) is authenticated/encrypted at all.
+
 ## Detection rule update
 
 Deliberately a **separate** update, not routed through the firmware
