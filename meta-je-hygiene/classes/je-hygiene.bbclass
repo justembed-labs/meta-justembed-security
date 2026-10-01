@@ -27,7 +27,16 @@ JE_HYGIENE_KERNEL_CONFIG ?= "${STAGING_KERNEL_BUILDDIR}/.config"
 JE_HYGIENE_REQUIRE_SWUPDATE_WEBSERVER_PROTECTED ?= "0"
 JE_HYGIENE_REPORT_DIR ?= "${DEPLOY_DIR_IMAGE}"
 
-ROOTFS_POSTPROCESS_COMMAND += "je_hygiene_qa_check; "
+# ":append" (not "+=") is required here: rootfs-postcommands.bbclass's
+# own security-relevant postprocessing (zap_empty_root_password,
+# ssh_allow_root_login, read_only_rootfs_hook, ...) is appended to this
+# same variable by a class inherited earlier (image.bbclass's own
+# ${IMAGE_CLASSES} inherit runs before it inherits rootfs-postcommands),
+# so a plain "+=" here lands je_hygiene_qa_check FIRST in the command
+# list -- checking the rootfs before that postprocessing has actually
+# run. ":append" is applied after every plain assignment regardless of
+# inherit order, so this always runs last, against the final rootfs.
+ROOTFS_POSTPROCESS_COMMAND:append = " je_hygiene_qa_check; "
 
 je_hygiene_qa_check() {
 	python3 '${LAYERDIR_JE_HYGIENE}/files/je_hygiene_check.py' \
