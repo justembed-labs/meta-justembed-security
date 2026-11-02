@@ -16,7 +16,7 @@
 # itself, not this class) with its own `sw-description`, same pattern
 # as meta-swupdate-boards' per-board examples.
 
-IMAGE_INSTALL:append = " swupdate"
+IMAGE_INSTALL:append = " swupdate je-downgrade-guard"
 
 # Raw partition-writable rootfs image, needed by any board's swupdate
 # `sw-description` regardless of its specific partition layout.
@@ -25,3 +25,9 @@ IMAGE_FSTYPES:append = " ext4.gz"
 # swupdate.cfg (webserver mode, ports, etc.) is board-specific -- provided
 # by the BSP via a swupdate recipe bbappend, same as meta-swupdate-boards'
 # own per-board examples. Nothing generic to set here.
+#
+# je-downgrade-guard installs a shell helper the BSP's own conf.d file
+# must source and fold into its SWUPDATE_ARGS -- see the helper's own
+# header. Not wired up automatically: conf.d entries fully replace
+# SWUPDATE_ARGS, so this class can't safely inject the flags itself
+# without knowing the BSP's other args (signing key, webserver mode).

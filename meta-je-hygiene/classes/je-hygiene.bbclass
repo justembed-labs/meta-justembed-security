@@ -20,9 +20,23 @@ JE_HYGIENE_ALLOWED_SERVICES ?= ""
 # per image.
 JE_HYGIENE_REQUIRE_KERNEL_HARDENING_FLAGS ?= "0"
 JE_HYGIENE_KERNEL_CONFIG ?= "${STAGING_KERNEL_BUILDDIR}/.config"
+# Off by default -- only relevant if swupdate's webserver mode is even
+# in use, and existing images may have made this tradeoff already
+# (e.g. a QEMU-only demo). Set to "1" once the conf.d file adds
+# -s/--ssl or --global-auth-file.
+JE_HYGIENE_REQUIRE_SWUPDATE_WEBSERVER_PROTECTED ?= "0"
 JE_HYGIENE_REPORT_DIR ?= "${DEPLOY_DIR_IMAGE}"
 
-ROOTFS_POSTPROCESS_COMMAND += "je_hygiene_qa_check; "
+# ":append" (not "+=") is required here: rootfs-postcommands.bbclass's
+# own security-relevant postprocessing (zap_empty_root_password,
+# ssh_allow_root_login, read_only_rootfs_hook, ...) is appended to this
+# same variable by a class inherited earlier (image.bbclass's own
+# ${IMAGE_CLASSES} inherit runs before it inherits rootfs-postcommands),
+# so a plain "+=" here lands je_hygiene_qa_check FIRST in the command
+# list -- checking the rootfs before that postprocessing has actually
+# run. ":append" is applied after every plain assignment regardless of
+# inherit order, so this always runs last, against the final rootfs.
+ROOTFS_POSTPROCESS_COMMAND:append = " je_hygiene_qa_check; "
 
 je_hygiene_qa_check() {
 	python3 '${LAYERDIR_JE_HYGIENE}/files/je_hygiene_check.py' \
@@ -33,5 +47,6 @@ je_hygiene_qa_check() {
 		$( [ "${JE_HYGIENE_REQUIRE_KEY_ONLY_SSH}" = "1" ] && echo --require-key-only-ssh ) \
 		$( [ "${JE_HYGIENE_REQUIRE_MINIMAL_SERVICE_SURFACE}" = "1" ] && echo --require-minimal-service-surface ) \
 		$( [ -f "${JE_HYGIENE_KERNEL_CONFIG}" ] && echo --kernel-config "${JE_HYGIENE_KERNEL_CONFIG}" ) \
-		$( [ "${JE_HYGIENE_REQUIRE_KERNEL_HARDENING_FLAGS}" = "1" ] && echo --require-kernel-hardening-flags )
+		$( [ "${JE_HYGIENE_REQUIRE_KERNEL_HARDENING_FLAGS}" = "1" ] && echo --require-kernel-hardening-flags ) \
+		$( [ "${JE_HYGIENE_REQUIRE_SWUPDATE_WEBSERVER_PROTECTED}" = "1" ] && echo --require-swupdate-webserver-protected )
 }

@@ -36,6 +36,15 @@ esac
 [ -d "$IMG_DIR" ] || { echo "no such deploy dir: $IMG_DIR" >&2; exit 2; }
 
 RUN_DIR="$STORE/$MACHINE/$RUN_ID"
+# `latest` is gitignored (evidence-store/cve-reports/*/latest) -- fine
+# for consecutive local builds on the same checkout, but a fresh CI
+# checkout never has it, so PREV_ID would always be empty and no CI
+# run would ever get a diff (real bug, found 2026-09-22: the first
+# evidence-scan CI run to actually reach this far had no diff-cve.md
+# at all). Rebuild it from the run folders actually present in this
+# checkout first -- those are git-tracked, so this works the same in
+# CI and locally.
+[ -d "$STORE" ] && python3 "$HERE/reindex.py" "$STORE" > /dev/null 2>&1 || true
 PREV_ID=""
 [ -L "$STORE/$MACHINE/latest" ] && PREV_ID="$(readlink "$STORE/$MACHINE/latest")"
 [ "$PREV_ID" = "$RUN_ID" ] && PREV_ID=""   # re-run: diff against the one before

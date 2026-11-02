@@ -14,6 +14,19 @@ swupdate).
   (real dual-copy partition layout, `sw-description`, bootloader
   integration) -- a consuming BSP defines its own update-image recipe
   inheriting `swupdate`, the same pattern `meta-swupdate-boards` uses.
+- **`je-downgrade-guard`** (pulled in automatically by `je-swupdate-fota`)
+  installs a shell helper, `je_downgrade_guard_args()`, that a BSP's own
+  swupdate conf.d file sources and folds into its `SWUPDATE_ARGS`. It
+  reads `/etc/sw-versions` and returns `-N`/`-R` (swupdate's own
+  no-downgrading/no-reinstalling flags) for the current version, plus
+  `--gen-swversions` to keep that file current after each install.
+  Signing (`-k`) proves a bundle came from you; it does not stop a
+  captured, still-validly-signed *old* bundle from being replayed --
+  that's what this closes. Not wired up automatically: conf.d entries
+  each fully replace `SWUPDATE_ARGS` (see `meta-swupdate`'s
+  `swupdate.sh`), so the BSP has to source and fold it in itself. See
+  `meta-je-example-bsp`'s `je-swupdate-conf.sh` for the one-line
+  integration.
 - **`je-secureboot`** reuses OpenEmbedded-core's own
   `kernel-fitimage.bbclass` + `uboot-sign.bbclass` for FIT signing
   rather than custom tooling -- wires `KERNEL_CLASSES`/
@@ -60,6 +73,18 @@ exact boot/update commands.
 
 ## Known limitations
 
+- **`je-downgrade-guard` covers whole-bundle replay/rollback only.**
+  It uses swupdate's global `-N`/`-R` flags against a single top-level
+  `version` in `sw-description` -- the pattern this project's own
+  examples use. swupdate also has a separate, finer-grained
+  per-component mechanism (`install-if-higher` + per-image versions in
+  `sw-description`) for BSPs that version each partition/component
+  independently; not what this helper implements.
+- **swupdate's webserver push channel has no channel protection by
+  default** (`meta-je-example-bsp`'s own `SWUPDATE_WEBSERVER_ARGS` has
+  no `--ssl`/`--global-auth-file`) -- fine for the QEMU demo, not for a
+  real deployment. `meta-je-hygiene`'s `swupdate_webserver_protected`
+  check catches this; see that layer's README.
 - **Push-mode only, no outbound update-polling today.** swupdate's
   webserver mode needs something to reach *the device* to push an
   update -- fine on a local network, not realistic behind NAT/cellular
