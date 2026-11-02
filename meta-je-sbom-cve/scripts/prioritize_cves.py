@@ -29,42 +29,14 @@ OUT_PREFIX     writes OUT_PREFIX.filtered.csv (the reduced input, kept
                OUT_PREFIX.json/.md -- same flags (--kev-file/
                --epss-file/--offline) passed straight through.
 """
-import csv
-import json
 import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from triage_common import noise_cve_ids, filter_unpatched  # noqa: E402
+
 HERE = Path(__file__).parent
-
-
-def noise_cve_ids(triage_json_paths):
-    """triage_json_paths: one or more kernel_cve_triage.py report paths --
-    merges their noise sets, and returns per-report summaries for the
-    printed breakdown."""
-    noise = set()
-    reports = []
-    for path in triage_json_paths:
-        report = json.loads(Path(path).read_text())
-        reports.append(report)
-        for bucket in ("config_inapplicable_candidates", "fixed_version_candidates",
-                       "cpe_mismatch_candidates"):
-            for entry in report.get(bucket, []):
-                noise.add(entry["cve"])
-    return noise, reports
-
-
-def filter_unpatched(unpatched_csv, noise, out_path):
-    with open(unpatched_csv, newline="") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
-        fieldnames = reader.fieldnames
-    kept = [r for r in rows if r["cve"] not in noise]
-    with open(out_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(kept)
-    return len(rows), len(kept)
 
 
 def main():
@@ -86,7 +58,7 @@ def main():
         for r in reports
     )
     print(f"noise reduction: {total} unpatched CVEs -> {len(noise)} excluded "
-          f"as noise ({breakdown}) -> {kept} remaining for KEV/EPSS triage")
+          f"as noise ({breakdown}) -> {len(kept)} remaining for KEV/EPSS triage")
 
     subprocess.run(
         [sys.executable, str(HERE / "kev_epss_enrich.py"),

@@ -44,6 +44,20 @@ def fetch(url):
         return r.read()
 
 
+# Honda OSS Summit EU 2026 weights, adopted as-is: EPSS 40%, CVSS 35%,
+# KEV 25%. Hardcoded policy, not learned -- see docs/cve-triage.md.
+EPSS_WEIGHT, CVSS_WEIGHT, KEV_WEIGHT = 0.40, 0.35, 0.25
+
+
+def priority_score(cvss, epss_score, in_kev):
+    """0-100. Each signal normalizes to 0-1 before weighting; a missing
+    signal contributes 0 rather than skewing the others."""
+    cvss_norm = (cvss / 10.0) if cvss else 0.0
+    epss_norm = epss_score if epss_score else 0.0
+    kev_norm = 1.0 if in_kev else 0.0
+    return round(100 * (EPSS_WEIGHT * epss_norm + CVSS_WEIGHT * cvss_norm + KEV_WEIGHT * kev_norm), 1)
+
+
 def load_kev(path=None):
     """Returns {cve: {date_added, ransomware}}."""
     try:
@@ -119,23 +133,29 @@ def main():
         row = by_cve.get(cve, {})
         k = kev.get(cve)
         e = epss.get(cve)
+        try:
+            cvss = float(row.get("cvss")) if row.get("cvss") else None
+        except ValueError:
+            cvss = None
         triage.append({
             "cve": cve,
             "package": row.get("package"),
             "severity": row.get("severity"),
+            "cvss": cvss,
             "in_kev": k is not None,
             "kev_date_added": (k or {}).get("date_added"),
             "kev_ransomware": (k or {}).get("ransomware", False),
             "epss_score": (e or {}).get("score"),
             "epss_percentile": (e or {}).get("percentile"),
+            "priority_score": priority_score(cvss, (e or {}).get("score"), k is not None),
         })
 
-    # Priority: confirmed-exploited (KEV) first, then by EPSS score
-    # descending, unscored last.
-    triage.sort(key=lambda t: (
-        0 if t["in_kev"] else 1,
-        -(t["epss_score"] or -1),
-    ))
+    # Weighted priority score (EPSS 40% + CVSS 35% + KEV 25%) -- hardcoded
+    # policy, not learned. A model's own stated confidence (see
+    # ai_cve_escalation.py's "ai_draft" field, when present on an entry
+    # upstream of this script) carries zero weight here, by design --
+    # same discipline as docs/responsible-ai.md.
+    triage.sort(key=lambda t: -t["priority_score"])
 
     result = {
         "total_cves": len(cves),
@@ -160,14 +180,15 @@ def main():
         md.append(f"> **warning:** {w}")
     if warnings:
         md.append("")
-    md.append("| cve | package | severity | KEV | EPSS | ransomware |")
-    md.append("|---|---|---|---|---|---|")
+    md.append("| cve | package | severity | priority | KEV | EPSS | ransomware |")
+    md.append("|---|---|---|---|---|---|---|")
     for t in triage:
         if not t["in_kev"] and (t["epss_score"] or 0) < 0.1:
             continue  # low-signal tail, full data is still in the JSON
         epss_str = f"{t['epss_score']:.3f}" if t["epss_score"] is not None else ""
         md.append(
             f"| {t['cve']} | {t['package'] or ''} | {t['severity'] or ''} | "
+            f"{t['priority_score']} | "
             f"{'YES' if t['in_kev'] else ''} | {epss_str} | "
             f"{'ransomware' if t['kev_ransomware'] else ''} |"
         )
