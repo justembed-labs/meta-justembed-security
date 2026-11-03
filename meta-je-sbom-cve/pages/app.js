@@ -144,7 +144,7 @@
       app.appendChild(dl);
 
       if (route.tab === "full") return renderFull(base, body);
-      if (route.tab === "triage") return renderTriage(base, body);
+      if (route.tab === "triage") return renderTriage(base, run, body);
       if (route.tab === "inventory") return renderMd(base + "inventory.md", body, "No layer inventory for this run.");
       return renderDiff(base, run, body);
     }).catch(function (e) { app.textContent = "Run not found: " + e.message; });
@@ -250,8 +250,33 @@
         card.onclick = function () {
           expanded.innerHTML = "";
           expanded.appendChild(h("h4", { text: b[1] + " (" + entries.length + ")" }));
-          var rows = entries.map(function (e) { return [e.cve, bucketEntryDetail(e)]; });
-          expanded.appendChild(tableFrom(["cve", "why"], rows, { filterable: true }));
+          // Real-source-verification entries (kernel_backport_check.py)
+          // carry a confirmed true/false flag -- "confirmed vulnerable"
+          // vs. "genuinely unknown" is the single most decision-relevant
+          // split in this whole table, buried in free text otherwise
+          // (a reader would have to read every row to spot it).
+          var hasConfirmedFlag = entries.some(function (e) { return typeof e.confirmed === "boolean"; });
+          if (hasConfirmedFlag) {
+            var nConfirmed = entries.filter(function (e) { return e.confirmed; }).length;
+            if (nConfirmed) {
+              expanded.appendChild(h("p", {}, [
+                h("strong", { text: nConfirmed + " confirmed still vulnerable" }),
+                document.createTextNode(" -- real fix, not a maybe. Sort the status column or filter \"confirmed\" below."),
+              ]));
+            }
+            // Status as its own sortable/filterable column, not a class
+            // added after the fact -- tableFrom's own draw() rebuilds the
+            // tbody from these row arrays on every sort/filter, so content
+            // baked into the cell survives; a DOM class added afterward
+            // would not.
+            var rows = entries.map(function (e) {
+              return [e.cve, e.confirmed ? "⬤ confirmed vulnerable" : "unknown", bucketEntryDetail(e)];
+            });
+            expanded.appendChild(tableFrom(["cve", "status", "why"], rows, { filterable: true }));
+          } else {
+            var plainRows = entries.map(function (e) { return [e.cve, bucketEntryDetail(e)]; });
+            expanded.appendChild(tableFrom(["cve", "why"], plainRows, { filterable: true }));
+          }
         };
       }
       cards.appendChild(card);
@@ -340,69 +365,299 @@
     return wrap;
   }
 
-  function renderTriage(base, body) {
+  // Ordered as the real backend actually runs them -- each stage's own
+  // total_scanned is the previous stage's needs_human_review count by
+  // construction (upstream_triage.py scans everything; backport_check
+  // and the CIP wrapper are only ever invoked on the prior stage's
+  // leftover), so chaining their real counts IS the real pipeline, not
+  // a separate recomputation of it. kernel_cve_triage.py (ours) is
+  // deliberately not a stage here -- its own verdicts are superseded by
+  // the upstream wrapper; it still runs, feeding backport_check's
+  // candidate commits, but has nothing of its own worth showing.
+  var PIPELINE_STAGES = [
+    { key: "upstream", title: "Upstream compiled-sources filter",
+      file: "triage-kernel-upstream.json", mdFile: "triage-kernel-upstream.md",
+      how: "improve_kernel_cve_report.py (OE-core) -- real SPDX compiled-file list vs. each CVE's affected files, real kernel.org CNA data.",
+      explain: "For each CVE, checks whether the file it affects is actually in this build's real compiled-file list (from SPDX) and whether the real fix commit is a confirmed git ancestor of this kernel tree. Both are facts about this exact build, not heuristics." },
+    { key: "backport", title: "Byte-level source verification",
+      file: "triage-kernel-backport.json", mdFile: "triage-kernel-backport.md",
+      how: "kernel_backport_check.py -- real git apply --check (forward/reverse) of the actual fix commit against this tree.",
+      explain: "Only runs on CVEs the stage above couldn't resolve. For each, tries applying the real fix commit forward (still vulnerable if it applies) and in reverse (already patched if that applies). Neither applying means the source has genuinely diverged -- flagged unknown, not guessed." },
+    { key: "cip", title: "CIP kmax Kconfig analysis",
+      file: "triage-kernel-cip.json", mdFile: "triage-kernel-cip.md",
+      how: "CIP kernel-cve-triage -- exhaustive SAT-solver reachability over the whole Kconfig/Makefile graph, run only on what's left above.",
+      explain: "Builds a precise yes/no formula for \"is this file compiled in\" from every Kconfig/Makefile rule combined (not just a one-line regex match), evaluated at both the commit that introduced the bug and the one that fixed it." },
+  ];
+
+  function pipelineResolvedCount(report) {
+    if (!report) return 0;
+    return (report.config_inapplicable_candidates || []).length +
+      (report.fixed_version_candidates || []).length +
+      (report.cpe_mismatch_candidates || []).length;
+  }
+
+  // A later stage (backport_check, CIP) only ever examines a SUBSET of the
+  // prior stage's leftover -- e.g. backport_check's own total_scanned is
+  // 436, not the 725 upstream actually left in review, because only 436
+  // of those 725 had an identifiable candidate commit to byte-check. Its
+  // own scanned-resolved math silently drops the other 289. Carry the
+  // true remaining count forward instead: first stage sets it from its
+  // own total_scanned, every later stage only ever subtracts what IT
+  // resolved from that running total, never recomputes from its own
+  // (smaller, subset) total_scanned.
+  function kernelPipelineCarry(reports) {
+    var out = [];
+    var carry = null;
+    PIPELINE_STAGES.forEach(function (stage) {
+      var report = reports[stage.key];
+      if (!report) { out.push({ stage: stage, report: null, remaining: carry }); return; }
+      var resolved = pipelineResolvedCount(report);
+      if (carry == null) carry = report.total_scanned || 0;
+      carry = Math.max(0, carry - resolved);
+      out.push({ stage: stage, report: report, remaining: carry, resolved: resolved,
+        scanned: report.total_scanned || 0 });
+    });
+    return out;
+  }
+
+  function arrow() {
+    return h("div", { class: "muted", style: "display:flex;align-items:center;padding:0 .5rem;font-size:1.2rem", text: "→" });
+  }
+
+  // Shows every defined stage, not just the ones this run happens to have
+  // data for -- a missing stage renders disabled with why, instead of
+  // silently vanishing, so the viewer sees the whole intended pipeline
+  // even on a run/board that hasn't wired every stage in yet. This is
+  // the KERNEL-only sub-pipeline -- nested inside renderOverview's
+  // "kernel CVE triage" step, not a top-level view on its own: the real
+  // top-level overview is the whole image (renderOverview below).
+  function renderKernelPipeline(base, reports, prevReports) {
+    var wrap = h("div", {});
+    var strip = h("div", { class: "row", style: "align-items:stretch;flex-wrap:wrap;gap:0" });
+    var detail = h("div", {});
+    var present = PIPELINE_STAGES.filter(function (s) { return reports[s.key]; });
+    var firstPresentKey = present.length ? present[0].key : null;
+    var lastCell = null;
+
+    if (!present.length) {
+      wrap.appendChild(h("p", { class: "muted", text: "No kernel triage data for this run." }));
+      return wrap;
+    }
+
+    function showStage(stage, report) {
+      detail.innerHTML = "";
+      detail.appendChild(h("p", { class: "muted", text: stage.how }));
+      detail.appendChild(h("p", {}, [h("strong", { text: "How it works: " }), document.createTextNode(stage.explain)]));
+      detail.appendChild(bucketSummary(stage.title + " -- full breakdown", report, base + stage.mdFile));
+    }
+
+    var carried = kernelPipelineCarry(reports);
+    var prevCarried = prevReports ? kernelPipelineCarry(prevReports) : null;
+
+    carried.forEach(function (c, i) {
+      var stage = c.stage, report = c.report;
+
+      // The true entry point is whichever stage actually scans everything
+      // (upstream, by design) -- if it's missing for this run, label the
+      // first stage we DO have honestly instead of mislabeling its input
+      // as "raw", since that count is really someone else's leftover.
+      if (stage.key === firstPresentKey && report) {
+        strip.appendChild(h("div", { class: "card", style: "flex:0 0 auto;min-width:140px" }, [
+          h("div", { class: "n", text: String(c.scanned) }),
+          h("div", { text: stage.key === "upstream" ? "raw kernel CVEs" : "input to this stage" }),
+        ]));
+        strip.appendChild(arrow());
+      }
+
+      if (!report) {
+        strip.appendChild(h("div", {
+          class: "card", style: "flex:1 1 160px;min-width:160px;opacity:.5",
+          title: "Not run for this board/run yet.",
+        }, [
+          h("div", { class: "n", text: "—" }),
+          h("div", { text: stage.title }),
+        ]));
+        if (i < carried.length - 1) strip.appendChild(arrow());
+        return;
+      }
+
+      // Note: a stage's OWN resolved-count still shows in its detail
+      // table correctly either way -- only the *running remaining* count
+      // (shown on the card) needs the carry, not what each stage itself
+      // found.
+      var remaining = c.remaining;
+      var prevRemaining = prevCarried ? prevCarried[i].remaining : null;
+
+      var delta = "";
+      if (prevRemaining != null) {
+        var d = remaining - prevRemaining;
+        delta = (d > 0 ? "+" : "") + d + " vs last run";
+      }
+      var cell = h("div", {
+        class: "card", style: "flex:1 1 160px;min-width:160px;cursor:pointer",
+      }, [
+        h("div", { class: "n", text: String(remaining) }),
+        h("div", { text: stage.title }),
+        delta ? h("div", { class: "muted", text: delta, style: "font-size:.75rem" }) : null,
+      ]);
+      cell.title = "Click for the full breakdown and evidence";
+      cell.onclick = function () {
+        Array.prototype.forEach.call(strip.children, function (c) { c.classList && c.classList.remove("active"); });
+        cell.classList.add("active");
+        showStage(stage, report);
+      };
+      strip.appendChild(cell);
+      lastCell = cell;
+      if (i < carried.length - 1) strip.appendChild(arrow());
+    });
+
+    wrap.appendChild(strip);
+    wrap.appendChild(detail);
+    // Open the last real (most informative) stage by default -- a direct
+    // reference, not DOM-child-index math (an arrow sits between cells).
+    if (lastCell) lastCell.click();
+    return wrap;
+  }
+
+  // The carried (not per-stage) remaining count from whichever stage ran
+  // last -- same correct carry logic as the detail view, so the overview's
+  // headline number and the expanded breakdown never disagree with each
+  // other. E.g. if CIP hasn't run for this board, backport_check's carried
+  // remainder is the real, honest number, not a guess at what CIP would
+  // have found.
+  function lastKernelRemaining(reports) {
+    var carried = kernelPipelineCarry(reports);
+    for (var i = carried.length - 1; i >= 0; i--) {
+      if (carried[i].report) return carried[i].remaining;
+    }
+    return null;
+  }
+
+  // The real top-level view: the whole image's funnel, start to finish.
+  // Kernel triage is ONE step in this, shown as a single card whose count
+  // is the kernel sub-pipeline's own final remaining count -- clicking it
+  // expands renderKernelPipeline (the upstream/backport/CIP breakdown)
+  // in place, rather than showing kernel and "everything else" as two
+  // disconnected, separately-scoped sections.
+  function renderOverview(base, sum, triage, kernelReports, prevKernelReports) {
+    var wrap = h("div", {});
+    var strip = h("div", { class: "row", style: "align-items:stretch;flex-wrap:wrap;gap:0" });
+    var detail = h("div", {});
+
+    var raw = sum ? (sum.by_status || {}).Unpatched || 0 : null;
+    var kernelRemaining = lastKernelRemaining(kernelReports);
+    var prevKernelRemaining = prevKernelReports ? lastKernelRemaining(prevKernelReports) : null;
+    var combined = triage ? triage.total_cves : null;
+
+    if (raw != null) {
+      strip.appendChild(h("div", { class: "card", style: "flex:0 0 auto;min-width:140px" }, [
+        h("div", { class: "n", text: String(raw) }), h("div", { text: "raw unpatched, all packages" }),
+      ]));
+      strip.appendChild(arrow());
+    }
+
+    if (kernelRemaining != null) {
+      var kDelta = "";
+      if (prevKernelRemaining != null) {
+        var kd = kernelRemaining - prevKernelRemaining;
+        kDelta = (kd > 0 ? "+" : "") + kd + " vs last run";
+      }
+      var kernelCell = h("div", { class: "card", style: "flex:1 1 180px;min-width:180px;cursor:pointer" }, [
+        h("div", { class: "n", text: String(kernelRemaining) }),
+        h("div", { text: "kernel CVE triage" }),
+        kDelta ? h("div", { class: "muted", text: kDelta, style: "font-size:.75rem" }) : null,
+      ]);
+      kernelCell.title = "Click to expand the kernel sub-pipeline";
+      kernelCell.onclick = function () {
+        detail.innerHTML = "";
+        detail.appendChild(h("p", { class: "muted", text:
+          "Kernel package only -- the rest of this build's packages don't go through these checks, they " +
+          "combine with whatever's left here directly into the total below." }));
+        detail.appendChild(renderKernelPipeline(base, kernelReports, prevKernelReports));
+      };
+      strip.appendChild(kernelCell);
+      strip.appendChild(arrow());
+    }
+
+    if (combined != null) {
+      strip.appendChild(h("div", { class: "card high", style: "flex:0 0 auto;min-width:160px" }, [
+        h("div", { class: "n", text: String(combined) }), h("div", { text: "decision-ready, all packages" }),
+      ]));
+    }
+
+    wrap.appendChild(strip);
+    wrap.appendChild(detail);
+    if (triage) {
+      wrap.appendChild(h("p", { class: "muted", style: "margin-top:.5rem", text:
+        (triage.kev_hits || 0) + " of those confirmed actively exploited (KEV) -- see \"Start here\" below." }));
+    }
+    return wrap;
+  }
+
+  function renderTriage(base, run, body) {
     body.textContent = "loading…";
+    var prevBase = run.previous && run.previous !== "null" ? base.replace(/[^/]+\/$/, "") + run.previous + "/" : null;
     Promise.all([
       getJSON(base + "parsed/cve_summary.json").catch(function () { return null; }),
       getJSON(base + "triage.json").catch(function () { return null; }),
       getText(base + "triage.md"),
-      getJSON(base + "triage-kernel.json").catch(function () { return null; }),
       getJSON(base + "triage-kernel-upstream.json").catch(function () { return null; }),
+      getJSON(base + "triage-kernel-backport.json").catch(function () { return null; }),
+      getJSON(base + "triage-kernel-cip.json").catch(function () { return null; }),
       getJSON(base + "triage-uboot.json").catch(function () { return null; }),
       getText(base + "triage.filtered.csv"),
-      getJSON(base + "triage-kernel-backport.json").catch(function () { return null; }),
+      prevBase ? getJSON(prevBase + "triage-kernel-upstream.json").catch(function () { return null; }) : Promise.resolve(null),
+      prevBase ? getJSON(prevBase + "triage-kernel-backport.json").catch(function () { return null; }) : Promise.resolve(null),
+      prevBase ? getJSON(prevBase + "triage-kernel-cip.json").catch(function () { return null; }) : Promise.resolve(null),
     ]).then(function (r) {
-      var sum = r[0], triage = r[1], triageMd = r[2], kernelReport = r[3], kernelUpstreamReport = r[4],
-          ubootReport = r[5], filteredCsv = r[6], backportReport = r[7];
+      var sum = r[0], triage = r[1], triageMd = r[2], upstream = r[3], backport = r[4], cip = r[5],
+          ubootReport = r[6], filteredCsv = r[7], prevUpstream = r[8], prevBackport = r[9], prevCip = r[10];
       body.innerHTML = "";
-      if (!triage && !kernelReport && !kernelUpstreamReport) {
+      if (!triage && !upstream) {
         body.innerHTML = "<p class='muted'>No triage/noise-reduction data for this run.</p>";
         return;
       }
-      if (sum && triage) {
-        var raw = (sum.by_status || {}).Unpatched || 0;
-        var after = triage.total_cves;
-        var pct = raw > 0 ? Math.round((1 - after / raw) * 100) : 0;
-        body.appendChild(h("h2", { text: "Unpatched CVEs: before vs. after noise reduction (all packages)" }));
-        var cards = h("div", { class: "cards" });
-        cards.appendChild(h("div", { class: "card" }, [
-          h("div", { class: "n", text: String(raw) }), h("div", { text: "raw unpatched" }),
-        ]));
-        cards.appendChild(h("div", { class: "card" }, [
-          h("div", { class: "n", text: String(after) }), h("div", { text: "after noise reduction" }),
-        ]));
-        cards.appendChild(h("div", { class: "card" }, [
-          h("div", { class: "n", text: pct + "%" }), h("div", { text: "reduction" }),
-        ]));
-        cards.appendChild(h("div", { class: "card crit" }, [
-          h("div", { class: "n", text: String(triage.kev_hits || 0) }), h("div", { text: "confirmed exploited (KEV)" }),
-        ]));
-        body.appendChild(cards);
+
+      body.appendChild(h("h2", { text: "Evidence pipeline -- whole image" }));
+      body.appendChild(h("p", { class: "muted", text:
+        "Every unpatched CVE in this build, start to finish -- click a step for its explanation and full evidence." }));
+
+      // Rendering can throw on real-but-unexpected data shapes (a
+      // mismatched field, an older run missing a key a newer one
+      // assumes) -- an uncaught throw here previously froze the page
+      // silently right after this point, no error shown anywhere
+      // (confirmed real: reported 2026-10-06, no console/page error at
+      // all, just nothing rendering past this line). Surface it
+      // visibly instead of failing silent.
+      try {
+        body.appendChild(renderOverview(base, sum, triage,
+          { upstream: upstream, backport: backport, cip: cip },
+          { upstream: prevUpstream, backport: prevBackport, cip: prevCip }));
+      } catch (e) {
+        body.appendChild(h("p", { style: "color:var(--crit)", text:
+          "Pipeline overview failed to render: " + e.message + " (see browser console for the full stack)." }));
+        if (window.console) console.error(e);
       }
+
       if (triageMd) {
-        body.appendChild(h("h2", { text: "KEV / EPSS priority (confirmed or likely exploited)" }));
+        body.appendChild(h("h2", { text: "Start here -- KEV / EPSS priority" }));
         body.appendChild(h("p", { class: "muted", text:
-          "The most urgent items in the remaining list -- start here." }));
+          "Confirmed or likely exploited, cross-referenced against the decision-ready list above." }));
         body.appendChild(h("div", { html: window.md.render(triageMd) }));
       }
       if (filteredCsv) {
         body.appendChild(h("h2", { text: "Everything left for human review (" + (triage ? triage.total_cves : "?") + ")" }));
         body.appendChild(h("p", { class: "muted", text:
-          "The actual remaining list, all packages -- click a column to sort. This is what the \"after noise reduction\" count above refers to." }));
+          "The full remaining list, all packages -- click a column to sort." }));
         body.appendChild(remainingTable(filteredCsv));
       }
-      body.appendChild(h("h2", { text: "Kernel triage, by source (standalone breakdown)" }));
-      body.appendChild(h("p", { class: "muted", text:
-        "Not the combined result above -- each source's own bucket counts if it ran alone. The two sources catch different, overlapping cases, so neither one's \"needs human review\" count matches the real combined total." }));
-      body.appendChild(bucketSummary("Local (git-ancestor check)", kernelReport, base + "triage-kernel.md"));
-      body.appendChild(bucketSummary("Upstream (kernel.org CNA data + compiled-sources)", kernelUpstreamReport, base + "triage-kernel-upstream.md"));
-      if (backportReport) {
-        body.appendChild(h("h3", { text: "Real source verification (git apply --check)" }));
-        body.appendChild(h("p", { class: "muted", text:
-          "Not a heuristic -- for CVEs neither source above could resolve, checks the actual source against the real fix commit. \"needs human review\" here splits into confirmed-vulnerable and genuinely-unknown; click the card to see which is which." }));
-        body.appendChild(bucketSummary("Backport check", backportReport, base + "triage-kernel-backport.md"));
+      if (ubootReport) {
+        body.appendChild(h("h2", { text: "U-Boot" }));
+        body.appendChild(bucketSummary("U-Boot triage", ubootReport, base + "triage-uboot.md"));
       }
-      if (ubootReport) body.appendChild(bucketSummary("U-Boot", ubootReport, base + "triage-uboot.md"));
+    }).catch(function (e) {
+      body.appendChild(h("p", { style: "color:var(--crit)", text: "Failed to load triage data: " + e.message }));
+      if (window.console) console.error(e);
     });
   }
 
