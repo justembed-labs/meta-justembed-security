@@ -17,7 +17,8 @@ class ReverifyTests(unittest.TestCase):
     @patch("ai_cve_escalation.verify_one")
     def test_cited_commit_confirmed_patched(self, mock_verify):
         mock_verify.return_value = ("patched", "deadbeef")
-        verified, evidence = reverify("/kdir", "ref", "", None, {"cited_commit": "deadbeef"})
+        verified, evidence = reverify("/kdir", "ref", "", None,
+                                       {"verdict": "evidence_of_impact", "cited_commit": "deadbeef"})
         self.assertEqual(verified, "patched")
         self.assertEqual(evidence, "deadbeef")
 
@@ -26,7 +27,8 @@ class ReverifyTests(unittest.TestCase):
         """'diverged'/'vulnerable' verdicts must never be silently
         accepted as resolved -- only patched/not-applicable-config do."""
         mock_verify.return_value = ("diverged", "deadbeef")
-        verified, evidence = reverify("/kdir", "ref", "", None, {"cited_commit": "deadbeef"})
+        verified, evidence = reverify("/kdir", "ref", "", None,
+                                       {"verdict": "evidence_of_impact", "cited_commit": "deadbeef"})
         self.assertIsNone(verified)
 
     @patch("ai_cve_escalation.config_status")
@@ -35,14 +37,34 @@ class ReverifyTests(unittest.TestCase):
         mock_symbol.return_value = "FOO"
         mock_status.return_value = "not-set"
         verified, evidence = reverify("/kdir", "ref", "CONFIG_FOO is not set", None,
-                                       {"cited_file": "drivers/foo.c"})
+                                       {"verdict": "evidence_against_impact", "cited_file": "drivers/foo.c"})
         self.assertEqual(verified, "not-applicable-config")
         self.assertEqual(evidence, "drivers/foo.c")
 
     def test_no_evidence_cited_stays_unverified(self):
-        verified, evidence = reverify("/kdir", "ref", "", None, {"justification": "no idea"})
+        verified, evidence = reverify("/kdir", "ref", "", None,
+                                       {"verdict": "inconclusive", "justification": "no idea"})
         self.assertIsNone(verified)
         self.assertIsNone(evidence)
+
+    @patch("ai_cve_escalation.config_status")
+    @patch("ai_cve_escalation.find_config_symbol")
+    def test_inconclusive_verdict_never_reverified_even_with_cited_file(self, mock_symbol, mock_status):
+        """Real bug found on the first live pilot run (CVE-2024-47703):
+        the model said verdict=inconclusive but named a file in its
+        justification narrative as a hypothetical example, not as
+        asserted evidence. reverify() must not treat that name as a
+        citation just because the field is non-empty -- an inconclusive
+        verdict stays unverified regardless of what text happens to be
+        in cited_file/cited_commit."""
+        mock_symbol.return_value = "FOO"
+        mock_status.return_value = "not-set"
+        verified, evidence = reverify("/kdir", "ref", "CONFIG_FOO is not set", None,
+                                       {"verdict": "inconclusive", "cited_file": "security/bpf/hooks.c",
+                                        "justification": "not confident, just speculating"})
+        self.assertIsNone(verified)
+        self.assertIsNone(evidence)
+        mock_symbol.assert_not_called()
 
 
 class RebucketTests(unittest.TestCase):
