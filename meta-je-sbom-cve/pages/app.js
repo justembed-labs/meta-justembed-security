@@ -223,9 +223,17 @@
   // kernel_cve_upstream_triage.py each use their own field names) --
   // pick whichever of these is present as the human-readable "why".
   function bucketEntryDetail(entry) {
-    return entry.reason || entry.subject || entry.file ||
+    var base = entry.reason || entry.subject || entry.file ||
       (entry.config_symbol ? "CONFIG_" + entry.config_symbol : "") ||
       entry.commit || entry.detail || "";
+    // ai_cve_escalation.py's draft never resolves anything on its own --
+    // when it couldn't be independently re-verified, show its reasoning
+    // as a hint for the human, clearly labeled as a draft, not a finding.
+    if (entry.ai_draft && entry.ai_draft.justification) {
+      base += " -- AI draft (" + (entry.ai_draft.confidence || "unknown") + " confidence, unverified): " +
+        entry.ai_draft.justification;
+    }
+    return base;
   }
 
   // triage-kernel*.json (thousands of per-CVE entries, 100s of KB) are
@@ -387,6 +395,10 @@
       file: "triage-kernel-cip.json", mdFile: "triage-kernel-cip.md",
       how: "CIP kernel-cve-triage -- exhaustive SAT-solver reachability over the whole Kconfig/Makefile graph, run only on what's left above.",
       explain: "Builds a precise yes/no formula for \"is this file compiled in\" from every Kconfig/Makefile rule combined (not just a one-line regex match), evaluated at both the commit that introduced the bug and the one that fixed it." },
+    { key: "ai", title: "AI-assisted evidence drafting",
+      file: "triage-kernel-ai.json", mdFile: "triage-kernel-ai.md",
+      how: "ai_cve_escalation.py -- a model drafts evidence of impact for whatever's left above; every claim is independently re-verified by the same deterministic checks the stages above use before anything counts as resolved.",
+      explain: "Never on the critical path and never terminal on its own: the model only ever sees this stage's own leftover, and a draft that cites a commit or file gets re-checked exactly like the deterministic stages above -- an unverified draft stays in needs_human_review, with the model's reasoning attached for the human, not presented as equivalent to a hardware-verified finding." },
   ];
 
   function pipelineResolvedCount(report) {
