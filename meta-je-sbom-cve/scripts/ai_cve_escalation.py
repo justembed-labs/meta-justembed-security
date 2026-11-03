@@ -180,7 +180,13 @@ def reverify(kernel_dir, our_ref, kconfig_text, compiled, draft):
     re-check whatever evidence it cited using the exact same deterministic
     checks kernel_backport_check.py / kernel_cve_triage.py already use.
     Returns one of 'patched', 'vulnerable', 'not-applicable-config',
-    or None (nothing the model cited could be independently confirmed)."""
+    or None (nothing the model cited could be independently confirmed).
+    An 'inconclusive' verdict is never reverified, even if a file/commit
+    name appears in the justification text -- the model is explicitly
+    not claiming that as real evidence, so citing it must not be
+    mechanically treated as if it were."""
+    if draft.get("verdict") not in ("evidence_of_impact", "evidence_against_impact"):
+        return None, None
     commit = (draft.get("cited_commit") or "").strip()
     if commit:
         verdict, _ = verify_one(kernel_dir, our_ref, [commit], compiled, 1)
