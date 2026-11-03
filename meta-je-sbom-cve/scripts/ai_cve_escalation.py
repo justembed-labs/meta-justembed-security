@@ -86,6 +86,12 @@ TIMEOUT = 60
 # compiled code, so there's nothing in the source tree to independently
 # check them against; they always stay with a human.
 REACHABILITY_JUSTIFICATIONS = ("vulnerable_code_not_present", "vulnerable_code_not_in_execute_path")
+ALL_JUSTIFICATIONS = REACHABILITY_JUSTIFICATIONS + (
+    "component_not_present",
+    "vulnerable_code_cannot_be_controlled_by_adversary",
+    "inline_mitigations_already_exist",
+    "insufficient_evidence",
+)
 
 TOOL_SCHEMA = {
     "name": "submit_cve_justification",
@@ -216,6 +222,27 @@ def draft_one(cve, summary, context, api_key, model, prompt_revision, cache_dir)
     return draft
 
 
+def valid_draft(draft):
+    """A real pilot run surfaced a malformed tool call: the model's
+    chosen justification was structurally plausible, but required fields
+    were missing/wrong-typed and stray tool-call-looking text (e.g.
+    "</parameter><parameter name=\"confidence\">low") had leaked into
+    justification_text -- evidence the generation itself went wrong, not
+    just that the model was uncertain. reverify() must never evaluate a
+    draft like that; a malformed draft is never evidence, no matter what
+    its file/Kconfig claims look like."""
+    if draft.get("justification") not in ALL_JUSTIFICATIONS:
+        return False
+    if draft.get("confidence") not in ("low", "medium", "high"):
+        return False
+    if not isinstance(draft.get("justification_text"), str) or not draft["justification_text"].strip():
+        return False
+    files = draft.get("affected_files")
+    if files is not None and (not isinstance(files, list) or not all(isinstance(f, str) for f in files)):
+        return False
+    return True
+
+
 def reverify(kernel_dir, kconfig_text, draft):
     """The model never resolves anything on its own -- independently
     re-check every file it named using the exact same Makefile/.config
@@ -237,7 +264,12 @@ def reverify(kernel_dir, kconfig_text, draft):
     least one .c file must still resolve, so a claim naming only headers
     stays unverified. Any justification other than the two reachability
     ones is never attempted here -- they describe deployment/mitigation
-    facts this source tree has no way to confirm or refute."""
+    facts this source tree has no way to confirm or refute. A
+    structurally malformed draft (missing/bad-typed required fields,
+    e.g. a response-generation glitch) is rejected before any of this --
+    see valid_draft()."""
+    if not valid_draft(draft):
+        return None, None, None
     justification = draft.get("justification")
     if justification not in REACHABILITY_JUSTIFICATIONS:
         return None, None, None

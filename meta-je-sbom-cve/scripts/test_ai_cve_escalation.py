@@ -10,7 +10,37 @@ Usage: python3 test_ai_cve_escalation.py
 import unittest
 from unittest.mock import patch
 
-from ai_cve_escalation import reverify, rebucket, cache_key
+from ai_cve_escalation import reverify, rebucket, cache_key, valid_draft
+
+
+class ValidDraftTests(unittest.TestCase):
+    def test_well_formed_draft_is_valid(self):
+        draft = {"justification": "vulnerable_code_not_present", "affected_files": ["a.c"],
+                 "justification_text": "because x", "confidence": "low"}
+        self.assertTrue(valid_draft(draft))
+
+    def test_missing_confidence_is_invalid(self):
+        """Real pilot finding (CVE-2024-1151): a malformed tool call had
+        no top-level confidence field at all -- stray tool-call-looking
+        text ('</parameter><parameter name="confidence">low') had leaked
+        into justification_text instead. A draft like that must never
+        reach reverify()'s evidence checks."""
+        draft = {"justification": "vulnerable_code_not_present", "affected_files": ["a.c"],
+                 "justification_text": "...low chance.</justification_text>\n<parameter name=\"confidence\">low"}
+        self.assertFalse(valid_draft(draft))
+
+    def test_unknown_justification_is_invalid(self):
+        draft = {"justification": "definitely_fine", "justification_text": "x", "confidence": "low"}
+        self.assertFalse(valid_draft(draft))
+
+    def test_empty_justification_text_is_invalid(self):
+        draft = {"justification": "insufficient_evidence", "justification_text": "  ", "confidence": "low"}
+        self.assertFalse(valid_draft(draft))
+
+    def test_non_list_affected_files_is_invalid(self):
+        draft = {"justification": "vulnerable_code_not_present", "affected_files": "a.c",
+                 "justification_text": "x", "confidence": "low"}
+        self.assertFalse(valid_draft(draft))
 
 
 class ReverifyTests(unittest.TestCase):
@@ -20,7 +50,8 @@ class ReverifyTests(unittest.TestCase):
     def test_vulnerable_code_not_present_confirmed(self, mock_is_file, mock_symbol, mock_status):
         mock_symbol.return_value = "FOO"
         mock_status.return_value = "not-set"
-        draft = {"justification": "vulnerable_code_not_present", "affected_files": ["drivers/foo.c"]}
+        draft = {"justification": "vulnerable_code_not_present", "affected_files": ["drivers/foo.c"],
+                 "justification_text": "because x", "confidence": "low"}
         verified, evidence, symbols = reverify("/kdir", "CONFIG_FOO is not set", draft)
         self.assertEqual(verified, "vulnerable_code_not_present")
         self.assertEqual(evidence, ["drivers/foo.c"])
@@ -120,13 +151,30 @@ class ReverifyTests(unittest.TestCase):
         mock_symbol.return_value = "JFS_FS"
         mock_status.return_value = "not-set"
         draft = {"justification": "vulnerable_code_not_in_execute_path",
-                 "affected_files": ["fs/jfs/xattr.c", "fs/jfs/jfs_xattr.h", "fs/jfs/jfs_dinode.h"]}
+                 "affected_files": ["fs/jfs/xattr.c", "fs/jfs/jfs_xattr.h", "fs/jfs/jfs_dinode.h"],
+                 "justification_text": "because x", "confidence": "medium"}
         verified, evidence, symbols = reverify("/kdir", "CONFIG_JFS_FS is not set", draft)
         self.assertEqual(verified, "vulnerable_code_not_in_execute_path")
         self.assertEqual(evidence, ["fs/jfs/xattr.c", "fs/jfs/jfs_xattr.h", "fs/jfs/jfs_dinode.h"])
         self.assertEqual(symbols, ["JFS_FS"])
         # find_config_symbol/config_status only ever consulted for the .c file.
         self.assertEqual(mock_symbol.call_count, 1)
+
+    @patch("ai_cve_escalation.config_status")
+    @patch("ai_cve_escalation.find_config_symbol")
+    @patch("pathlib.Path.is_file", return_value=True)
+    def test_malformed_draft_never_reverified_even_with_passing_evidence(self, mock_is_file, mock_symbol, mock_status):
+        """Real pilot finding (CVE-2024-1151): files + Kconfig state would
+        otherwise pass, but the draft itself is malformed (no confidence
+        field) -- must stay unverified regardless."""
+        mock_symbol.return_value = "FOO"
+        mock_status.return_value = "not-set"
+        draft = {"justification": "vulnerable_code_not_present", "affected_files": ["drivers/foo.c"],
+                 "justification_text": "...</justification_text>\n<parameter name=\"confidence\">low"}
+        verified, evidence, symbols = reverify("/kdir", "CONFIG_FOO is not set", draft)
+        self.assertIsNone(verified)
+        self.assertIsNone(evidence)
+        self.assertIsNone(symbols)
 
     @patch("pathlib.Path.is_file", return_value=True)
     def test_headers_only_with_no_c_file_stays_unverified(self, mock_is_file):
