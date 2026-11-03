@@ -157,13 +157,24 @@ def files_touched_by_commit(kernel_dir, commit):
 _OBJ_RULE_CACHE = {}
 
 
+def _obj_config_symbol(text, obj_name):
+    m = re.search(
+        r"obj-\$\(CONFIG_([A-Z0-9_]+)\)\s*[:+]?=[^\n]*\b" + re.escape(obj_name) + r"\b",
+        text,
+    )
+    return m.group(1) if m else None
+
+
 def find_config_symbol(kernel_dir, filepath):
     """Best-effort: the Kconfig symbol gating this file's compilation,
-    via the Makefile in the same directory (kbuild's
-    `obj-$(CONFIG_X) += file.o` convention). None if the file doesn't
-    map cleanly to one symbol -- composite objects, per-file CFLAGS,
-    and subdir-y indirection all fall outside what this catches, so a
-    None result means "couldn't tell", not "always built"."""
+    via the Makefile in the same directory. Handles kbuild's direct
+    `obj-$(CONFIG_X) += file.o` convention, and one level of composite
+    indirection (`foo-y := a.o b.o`, with `foo.o` itself gated by
+    `obj-$(CONFIG_FOO) += foo.o`) -- an extremely common kbuild pattern
+    for any subsystem with more than one source file. Per-file CFLAGS
+    and subdir-y indirection beyond one level still fall outside what
+    this catches, so a None result means "couldn't tell", not "always
+    built"."""
     p = Path(filepath)
     if p.suffix not in (".c", ".h"):
         return None
@@ -171,18 +182,21 @@ def find_config_symbol(kernel_dir, filepath):
     key = str(makefile)
     if key not in _OBJ_RULE_CACHE:
         try:
-            _OBJ_RULE_CACHE[key] = makefile.read_text(errors="replace")
+            raw = makefile.read_text(errors="replace")
         except OSError:
-            _OBJ_RULE_CACHE[key] = ""
+            raw = ""
+        _OBJ_RULE_CACHE[key] = re.sub(r"\\\n", " ", raw)
     text = _OBJ_RULE_CACHE[key]
     if not text:
         return None
     obj_name = p.stem + ".o"
-    m = re.search(
-        r"obj-\$\(CONFIG_([A-Z0-9_]+)\)\s*[:+]?=[^\n]*\b" + re.escape(obj_name) + r"\b",
-        text,
-    )
-    return m.group(1) if m else None
+    symbol = _obj_config_symbol(text, obj_name)
+    if symbol:
+        return symbol
+    m = re.search(r"([A-Za-z0-9_]+)-y\s*[:+]?=[^\n]*\b" + re.escape(obj_name) + r"\b", text)
+    if not m:
+        return None
+    return _obj_config_symbol(text, m.group(1) + ".o")
 
 
 def config_status(kconfig_text, symbol):

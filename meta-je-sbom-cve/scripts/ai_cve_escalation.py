@@ -77,7 +77,7 @@ DEFAULT_MODEL = "claude-sonnet-5"
 # Bump this when the prompt text below changes -- it's an input to the
 # reproducibility hash (docs/cve-triage.md rule 1: the prompt revision is
 # an input, not just the CVE data), not a free-text comment.
-PROMPT_REVISION = "ai-escalation-v2-openvex"
+PROMPT_REVISION = "ai-escalation-v3-division-of-labor"
 TIMEOUT = 60
 
 # OpenVEX's standard not_affected justification vocabulary. Only the two
@@ -134,13 +134,23 @@ SYSTEM_PROMPT = (
     "for either, name the REAL source file path(s) in this kernel tree "
     "where the vulnerable code lives (not a commit hash -- you have no "
     "reliable way to know whether an arbitrary upstream commit exists in "
-    "this exact tree, so never cite one). If you can't name a real file "
-    "with real evidence, say insufficient_evidence rather than guessing. "
-    "Every file you name gets independently checked against this build's "
-    "own Makefiles and .config before anyone trusts it -- a wrong or "
-    "invented path is caught, not acted on, but wastes the human "
-    "reviewer's time, so only name files you have real reason to believe "
-    "exist and are relevant."
+    "this exact tree, so never cite one). "
+    "You are NOT expected to know this build's actual .config state or to "
+    "have read this tree's live source yourself -- that confirmation is not "
+    "your job. A separate, independent, deterministic check reads this "
+    "build's real Makefiles and .config and will confirm or reject your "
+    "claim after you submit it. Your only job is to identify, from the CVE "
+    "description and your own knowledge of where this kind of code "
+    "normally lives in the kernel, which real file(s) the vulnerable code "
+    "would be in. State your justification and name the file(s) even "
+    "though you can't personally verify the build's state -- that's "
+    "expected and fine, the independent check handles it. Only say "
+    "insufficient_evidence when you can't identify which real file(s) the "
+    "vulnerable code lives in at all, not merely because you lack access "
+    "to confirm the build's config or runtime state. "
+    "A wrong or invented path is caught, not acted on, but wastes the "
+    "human reviewer's time, so only name files you have real reason to "
+    "believe exist and are relevant."
 )
 
 
@@ -210,43 +220,57 @@ def reverify(kernel_dir, kconfig_text, draft):
     """The model never resolves anything on its own -- independently
     re-check every file it named using the exact same Makefile/.config
     mapping kernel_cve_triage.py's own config_inapplicable_candidates
-    bucket already relies on. Returns (justification, [confirmed files])
-    on success, or (None, None) if anything named can't be confirmed.
+    bucket already relies on. Returns (justification, [confirmed files],
+    [resolved symbols]) on success, or (None, None, None) if anything
+    named can't be confirmed.
 
-    Requires ALL named files to check out, not just one -- partial
-    evidence stays with a human, matching OpenVEX's own evidence-
-    completeness expectation (see docs/cve-triage.md). Each file must
-    both exist for real in this checkout (catches an invented/hallucinated
-    path outright, which a Kconfig-symbol miss alone wouldn't reliably
-    catch) and map to a Kconfig symbol that's explicitly not-set. Any
-    justification other than the two reachability ones is never attempted
-    here -- they describe deployment/mitigation facts this source tree has
-    no way to confirm or refute."""
+    Requires every named file to exist for real in this checkout (catches
+    an invented/hallucinated path outright) -- partial existence always
+    fails the whole claim, matching OpenVEX's own evidence-completeness
+    expectation (see docs/cve-triage.md). Beyond existence, only .c files
+    need to map to a Kconfig symbol that's explicitly not-set: headers
+    (.h) are never gated by their own `obj-$(CONFIG_X)` Makefile rule --
+    they're declarations, pulled in by whichever .c file includes them,
+    not compiled objects in their own right -- so requiring one to
+    resolve a symbol would always fail by construction and poison any
+    claim that (correctly) cites a header alongside its .c file. At
+    least one .c file must still resolve, so a claim naming only headers
+    stays unverified. Any justification other than the two reachability
+    ones is never attempted here -- they describe deployment/mitigation
+    facts this source tree has no way to confirm or refute."""
     justification = draft.get("justification")
     if justification not in REACHABILITY_JUSTIFICATIONS:
-        return None, None
+        return None, None, None
     files = [f.strip() for f in (draft.get("affected_files") or []) if f.strip()]
     if not files or not kconfig_text:
-        return None, None
+        return None, None, None
     confirmed = []
+    symbols = []
     for f in files:
         if not (Path(kernel_dir) / f).is_file():
-            return None, None
+            return None, None, None
+        if f.endswith(".h"):
+            confirmed.append(f)
+            continue
         symbol = find_config_symbol(kernel_dir, f)
         if not symbol or config_status(kconfig_text, symbol) != "not-set":
-            return None, None
+            return None, None, None
         confirmed.append(f)
-    return justification, confirmed
+        symbols.append(symbol)
+    if not symbols:
+        return None, None, None
+    return justification, confirmed, symbols
 
 
 def rebucket(results):
     inapplicable, fixed, mismatch, review = [], [], [], []
     for r in results:
-        cve, draft, verified, evidence = r["cve"], r["draft"], r["verified"], r["evidence"]
+        cve, draft, verified, evidence, symbols = (
+            r["cve"], r["draft"], r["verified"], r["evidence"], r["symbols"])
         if verified in REACHABILITY_JUSTIFICATIONS:
             inapplicable.append({
                 "cve": cve, "source": "ai-escalation",
-                "config_symbol": "ai-escalation", "file": ", ".join(evidence),
+                "config_symbol": "+".join(symbols), "file": ", ".join(evidence),
                 "reason": f"OpenVEX justification '{verified}' independently confirmed -- "
                           f"named file(s) {evidence} exist in this kernel tree and map to a "
                           f"Kconfig symbol that's not-set -- model justification: {draft['justification_text']}",
@@ -305,8 +329,8 @@ def main():
                                    args.prompt_revision, args.response_cache)
             except Exception as e:
                 draft = {"justification": "insufficient_evidence", "justification_text": f"model call failed: {e}", "confidence": "low"}
-        verified, evidence = reverify(args.kernel_git_dir, kconfig_text, draft)
-        results.append({"cve": cve, "draft": draft, "verified": verified, "evidence": evidence})
+        verified, evidence, symbols = reverify(args.kernel_git_dir, kconfig_text, draft)
+        results.append({"cve": cve, "draft": draft, "verified": verified, "evidence": evidence, "symbols": symbols})
 
     inapplicable, fixed, mismatch, review = rebucket(results)
     write_report(args.out_prefix, "ai-escalation", args.our_ref, len(results),
