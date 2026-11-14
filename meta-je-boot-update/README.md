@@ -1,8 +1,9 @@
 # meta-je-boot-update
 
 Secure boot + atomic FOTA: `je-secureboot.bbclass` (U-Boot verified
-boot) and `je-swupdate-fota.bbclass` (signed A/B firmware updates over
-swupdate).
+boot), `je-swupdate-fota.bbclass` (signed A/B firmware updates over
+swupdate), and `je-ostree-fota.bbclass` (OSTree-based atomic updates,
+PoC stage) -- a BSP picks whichever FOTA mechanism fits it, or both.
 
 ## What it does
 
@@ -27,6 +28,18 @@ swupdate).
   `swupdate.sh`), so the BSP has to source and fold it in itself. See
   `meta-je-example-bsp`'s `je-swupdate-conf.sh` for the one-line
   integration.
+- **`je-ostree-fota`** (PoC stage, not yet hardware-verified) installs
+  `ostree` itself -- already available via meta-openembedded/meta-oe,
+  no extra layer needed. Unlike `je-swupdate-fota`, it has no upstream
+  bitbake automation to lean on for the actual "commit this rootfs
+  into an OSTree repo and deploy it" step: `meta-updater`, historically
+  the layer that provided this, has had no commits since 2021-12-09
+  and no branch past 2021 -- confirmed via `git ls-remote` and the
+  GitHub API, not assumed dead from memory. A consuming BSP implements
+  that step itself (realistically a host-side script against the
+  built rootfs, not a bitbake image_type), plus its own bootloader-
+  deployment-pointer integration -- same hardware-specific split as
+  `je-swupdate-fota`'s partition layout and `sw-description`.
 - **`je-secureboot`** reuses OpenEmbedded-core's own
   `kernel-fitimage.bbclass` + `uboot-sign.bbclass` for FIT signing
   rather than custom tooling -- wires `KERNEL_CLASSES`/
@@ -43,6 +56,9 @@ Full trust-chain breakdown (what's verified, by what, anchored where):
 
 - `je-swupdate-fota`: an A/B-style partition layout compatible with
   swupdate's raw-write mode.
+- `je-ostree-fota`: a BSP-provided rootfs-to-commit + deployment
+  mechanism -- this class alone does not provide one (see "What it
+  does").
 - `je-secureboot`: a U-Boot build with FIT signature support
   (`CONFIG_FIT`, `CONFIG_FIT_SIGNATURE`, `CONFIG_RSA`,
   `CONFIG_OF_SEPARATE`).
@@ -51,10 +67,13 @@ Full trust-chain breakdown (what's verified, by what, anchored where):
 
 ```
 IMAGE_CLASSES += "je-swupdate-fota"
+IMAGE_CLASSES += "je-ostree-fota"
 INHERIT += "je-secureboot"
 ```
 
-Each is independent -- adopt either without the other.
+Each is independent -- adopt any combination. `je-swupdate-fota` and
+`je-ostree-fota` are meant as *alternatives* for the same job (atomic
+FOTA); a BSP choosing both at once needs its own reason to.
 
 ## Quick test
 
@@ -70,8 +89,18 @@ exact boot/update commands.
 - `je-secureboot`: shares its signing-key variables with
   `je-swupdate-fota`'s update signing by convention, not by
   requirement.
+- `je-ostree-fota`: no board-agnostic configuration exists yet --
+  everything (repo URL, deployment-pointer mechanism) is BSP-side,
+  PoC stage. See the class's own comments.
 
 ## Known limitations
+
+- **`je-ostree-fota` is PoC stage, generic-wiring only.** It installs
+  `ostree`; it does not provide a working update mechanism by itself.
+  No QEMU demo, no real-hardware test yet -- unlike `je-swupdate-fota`
+  and `je-secureboot`, which both have at least one of those. Treat
+  any BSP adopting this as genuinely experimental until a real build
+  and boot test exists.
 
 - **`je-downgrade-guard` covers whole-bundle replay/rollback only.**
   It uses swupdate's global `-N`/`-R` flags against a single top-level
